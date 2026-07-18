@@ -15,6 +15,7 @@ class MakeDomain extends Command
      */
     public function handle()
     {
+        //sample
         //
     }
 }
