@@ -35,4 +35,16 @@ return [
         ],
     ],
 
+    'azure_speech' => [
+        'key' => env('AZURE_SPEECH_KEY'),
+        'region' => env('AZURE_SPEECH_REGION'),
+        'voice' => env('AZURE_SPEECH_VOICE', 'en-US-JennyNeural'),
+    ],
+
+    'azure_vision' => [
+        'key' => env('AZURE_VISION_KEY'),
+        // e.g. https://<resource-name>.cognitiveservices.azure.com
+        'endpoint' => env('AZURE_VISION_ENDPOINT'),
+    ],
+
 ];

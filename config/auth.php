@@ -42,6 +42,13 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Token guard used by the API. Provider is null so Sanctum resolves the
+        // token's own tokenable model (Teachers or Student) directly.
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => null,
+        ],
     ],
 
     /*
