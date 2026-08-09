@@ -21,6 +21,7 @@ class UpdateTeacherProfileRequest extends FormRequest
             'last_name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('teachers', 'email')->ignore($teacherId)],
             'phone_number' => ['nullable', 'string', 'max:255'],
+            'profile_image_url' => ['nullable', 'string', 'max:2048'],
             'password' => ['nullable', 'string', 'min:6'],
         ];
     }

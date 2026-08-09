@@ -35,7 +35,9 @@ class OcrService
             ->post("{$endpoint}/vision/v3.2/read/analyze");
 
         if ($submit->status() !== 202) {
-            throw new RuntimeException('Azure Vision submit failed with status '.$submit->status());
+            // Azure explains exactly what it disliked — keep that, it is the
+            // difference between a fixable message and "something went wrong".
+            throw new RuntimeException($this->describeError($submit->status(), $submit->json()));
         }
 
         $operationLocation = $submit->header('Operation-Location');
@@ -64,6 +66,32 @@ class OcrService
         }
 
         throw new RuntimeException('Azure Vision OCR timed out.');
+    }
+
+    /**
+     * Turn an Azure error response into a message worth showing a person.
+     * Falls back to the bare status when Azure sends nothing useful.
+     *
+     * @param  array<string, mixed>|null  $body
+     */
+    private function describeError(int $status, ?array $body): string
+    {
+        $code = $body['error']['code'] ?? null;
+        $message = $body['error']['message'] ?? null;
+
+        if ($status === 429) {
+            $code ??= 'TooManyRequests';
+        }
+
+        if ($code && $message) {
+            return "{$code}: {$message}";
+        }
+
+        if ($code) {
+            return (string) $code;
+        }
+
+        return 'Azure Vision submit failed with status '.$status;
     }
 
     /**

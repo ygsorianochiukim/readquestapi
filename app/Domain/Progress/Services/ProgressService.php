@@ -2,6 +2,7 @@
 
 namespace App\Domain\Progress\Services;
 
+use App\Domain\Achievement\Services\AchievementService;
 use App\Domain\Badge\Models\Badge;
 use App\Domain\Badge\Services\RewardService;
 use App\Domain\Book\Models\Book;
@@ -9,6 +10,7 @@ use App\Domain\Chapter\Models\Chapter;
 use App\Domain\Progress\Models\ReadingProgress;
 use App\Domain\Progress\Repositories\ProgressRepository;
 use App\Domain\Student\Models\Student;
+use App\Domain\SystemLog\Services\SystemLogService;
 use Illuminate\Support\Collection;
 
 class ProgressService
@@ -22,6 +24,9 @@ class ProgressService
     public function __construct(
         private ProgressRepository $repository,
         private RewardService $rewards,
+        private AchievementService $achievements,
+        private SystemLogService $logs,
+        private PageProgressService $pages,
     ) {}
 
     // ============================================================
@@ -36,7 +41,8 @@ class ProgressService
     public function overviewForStudent(Student $student): array
     {
         $progressMap = $this->repository->forStudent($student->id);
-        $books = $student->books()->with('chapters')->get();
+        $pageProgressMap = $this->pages->pageProgressFor($student);
+        $books = $student->books()->with(['chapters', 'pages'])->get();
 
         $result = [];
         $previousBookComplete = true; // the first assigned book is always unlocked
@@ -51,6 +57,11 @@ class ProgressService
             $unlocked = $previousBookComplete;
             $currentChapter = $this->firstIncompleteChapter($chapters, $progressMap);
 
+            // Page-based books are measured in pages, not chapters.
+            $pages = $total === 0
+                ? $this->pages->summaryForBook($student, $book, $pageProgressMap)
+                : null;
+
             $result[] = [
                 'id' => $book->id,
                 'title' => $book->title,
@@ -61,13 +72,23 @@ class ProgressService
                 'type' => $book->type,
                 'total_chapters' => $total,
                 'completed_chapters' => $completed,
-                'percent' => $total > 0 ? (int) round($completed / $total * 100) : 0,
+                'total_pages' => $pages['total'] ?? 0,
+                'completed_pages' => $pages['completed'] ?? 0,
+                'percent' => $pages
+                    ? $pages['percent']
+                    : ($total > 0 ? (int) round($completed / $total * 100) : 0),
                 'is_locked' => ! $unlocked,
-                'is_completed' => $total > 0 && $completed === $total,
+                'is_completed' => $pages
+                    ? $pages['is_completed']
+                    : ($total > 0 && $completed === $total),
                 'current_chapter_id' => $currentChapter?->id,
             ];
 
-            $previousBookComplete = $total > 0 && $completed === $total;
+            // Page-based books have no chapters to complete, so they leave the
+            // gate as they found it instead of blocking everything after them.
+            if ($total > 0) {
+                $previousBookComplete = $completed === $total;
+            }
         }
 
         return $result;
@@ -243,6 +264,12 @@ class ProgressService
         }
         $progress = $this->reconcile($student, $chapter, $progress);
 
+        $this->logs->record(
+            'quiz.submitted',
+            "{$student->full_name} scored {$percent}% on the quiz for chapter {$chapter->chapter_number} — \"{$chapter->title}\".",
+            $student,
+        );
+
         if ($percent === 100) {
             $this->awardByName($student, 'Quiz Master');
         }
@@ -295,11 +322,20 @@ class ProgressService
             $this->onChapterCompleted($student, $chapter);
         }
 
+        // Any scored activity can move a milestone forward.
+        $this->achievements->sync($student);
+
         return $progress->refresh();
     }
 
     private function onChapterCompleted(Student $student, Chapter $chapter): void
     {
+        $this->logs->record(
+            'chapter.completed',
+            "{$student->full_name} completed chapter {$chapter->chapter_number} — \"{$chapter->title}\".",
+            $student,
+        );
+
         // First chapter ever completed.
         $this->awardByName($student, 'First Steps');
 
@@ -328,7 +364,10 @@ class ProgressService
         if ($this->isBookFullyCompleted($book, $progressMap)) {
             $this->awardByName($student, 'Bookworm');
 
+            // Page-based books have no chapters to finish, so they are not part
+            // of the "finished everything" check.
             $allAssignedComplete = $student->books()->with('chapters')->get()
+                ->filter(fn (Book $assigned) => $assigned->chapters->isNotEmpty())
                 ->every(fn (Book $assigned) => $this->isBookFullyCompleted($assigned, $progressMap));
 
             if ($allAssignedComplete) {
@@ -346,13 +385,20 @@ class ProgressService
         if ($index === false) {
             return false; // not assigned to this student
         }
-        if ($index === 0) {
-            return true;
+
+        // Walk back to the nearest earlier book that actually has chapters.
+        // A page-based book can never be "completed", so it must not gate the
+        // rest of the journey.
+        for ($position = $index - 1; $position >= 0; $position--) {
+            $previousBook = $assigned[$position];
+            if ($previousBook->chapters->isEmpty()) {
+                continue;
+            }
+
+            return $this->isBookFullyCompleted($previousBook, $progressMap);
         }
 
-        $previousBook = $assigned[$index - 1];
-
-        return $this->isBookFullyCompleted($previousBook, $progressMap);
+        return true;
     }
 
     /** @param Collection<int, ReadingProgress> $progressMap */

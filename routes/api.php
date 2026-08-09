@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AchievementController;
 use App\Http\Controllers\Api\V1\Auth\StudentAuthController;
 use App\Http\Controllers\Api\V1\Auth\TeacherAuthController;
 use App\Http\Controllers\Api\V1\BadgeController;
@@ -8,13 +9,16 @@ use App\Http\Controllers\Api\V1\BookPageController;
 use App\Http\Controllers\Api\V1\BookPageNarrationController;
 use App\Http\Controllers\Api\V1\ChapterController;
 use App\Http\Controllers\Api\V1\ChapterNarrationController;
+use App\Http\Controllers\Api\V1\OcrController;
 use App\Http\Controllers\Api\V1\PronunciationController;
 use App\Http\Controllers\Api\V1\PronunciationReviewController;
 use App\Http\Controllers\Api\V1\QuizQuestionController;
 use App\Http\Controllers\Api\V1\ReaderController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\RewardController;
 use App\Http\Controllers\Api\V1\StudentController;
 use App\Http\Controllers\Api\V1\StudentLearningController;
+use App\Http\Controllers\Api\V1\SystemLogController;
 use App\Http\Controllers\Api\V1\TeacherDashboardController;
 use App\Http\Controllers\Api\V1\UploadController;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +36,7 @@ Route::prefix('v1')->group(function () {
         Route::get('student/me', [StudentAuthController::class, 'me']);
         Route::post('student/logout', [StudentAuthController::class, 'logout']);
         Route::get('student/badges', [StudentAuthController::class, 'badges']);
+        Route::get('student/achievements', [StudentAuthController::class, 'achievements']);
 
         // Read-aloud pronunciation assessment (student submits a recording)
         Route::post('pronunciation', [PronunciationController::class, 'store']);
@@ -43,6 +48,10 @@ Route::prefix('v1')->group(function () {
         Route::post('student/chapters/{chapter}/quiz', [StudentLearningController::class, 'submitQuiz']);
         Route::post('student/chapters/{chapter}/story-read', [StudentLearningController::class, 'markStoryRead']);
         Route::post('student/chapters/{chapter}/game', [StudentLearningController::class, 'completeGame']);
+
+        // ---- Page-based (scanned) books ----
+        Route::get('student/books/{book}/pages', [StudentLearningController::class, 'bookPages']);
+        Route::post('student/pages/{page}/read', [StudentLearningController::class, 'markPageRead']);
     });
 
     // ---- Reader + narration — available to any authenticated user (teacher or student) ----
@@ -65,12 +74,26 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard', [TeacherDashboardController::class, 'index']);
         Route::get('students/{student}/progress', [TeacherDashboardController::class, 'studentProgress']);
 
+        // Downloadable reports (Reports Module)
+        Route::get('reports/class.csv', [ReportController::class, 'classReport']);
+        Route::get('reports/students/{student}.csv', [ReportController::class, 'studentReport']);
+
+        // Achievement milestones
+        Route::get('achievements', [AchievementController::class, 'index']);
+        Route::get('students/{student}/achievements', [AchievementController::class, 'forStudent']);
+
+        // Audit trail (System Log)
+        Route::get('system-logs', [SystemLogController::class, 'index']);
+
         // Book assignment (reading level + book assignment module)
         Route::get('students/{student}/books', [StudentController::class, 'books']);
         Route::put('students/{student}/books', [StudentController::class, 'syncBooks']);
 
         // Image uploads (book covers, chapter illustrations, etc.)
         Route::post('uploads/image', [UploadController::class, 'image']);
+
+        // Read printed text out of a scan/photo (fills in chapter story text)
+        Route::post('ocr/extract', [OcrController::class, 'extract']);
 
         // Student roster (scoped to the authenticated teacher)
         Route::apiResource('students', StudentController::class);

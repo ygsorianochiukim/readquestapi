@@ -23,6 +23,7 @@ class UpdateStudentRequest extends FormRequest
             'password' => ['nullable', 'string', 'min:6'],
             'reading_level' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'string', 'in:active,inactive'],
+            'profile_image_url' => ['nullable', 'string', 'max:2048'],
         ];
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Student\Models;
 
+use App\Domain\Achievement\Models\Achievement;
 use App\Domain\Badge\Models\Badge;
 use App\Domain\Book\Models\Book;
 use App\Domain\Progress\Models\ReadingProgress;
@@ -52,6 +53,14 @@ class Student extends Authenticatable
     {
         return $this->belongsToMany(Badge::class, 'student_badges')
             ->withPivot('earned_at')
+            ->withTimestamps();
+    }
+
+    /** Milestones this student has unlocked from their own activity. */
+    public function achievements(): BelongsToMany
+    {
+        return $this->belongsToMany(Achievement::class, 'student_achievements')
+            ->withPivot('unlocked_at')
             ->withTimestamps();
     }
 

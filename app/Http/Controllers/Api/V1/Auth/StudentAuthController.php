@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1\Auth;
 
+use App\Domain\Achievement\Services\AchievementService;
 use App\Domain\Badge\Services\RewardService;
 use App\Domain\Student\Services\StudentService;
+use App\Domain\SystemLog\Services\SystemLogService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StudentLoginRequest;
 use Illuminate\Http\JsonResponse;
@@ -11,7 +13,10 @@ use Illuminate\Http\Request;
 
 class StudentAuthController extends Controller
 {
-    public function __construct(private StudentService $service) {}
+    public function __construct(
+        private StudentService $service,
+        private SystemLogService $logs,
+    ) {}
 
     public function login(StudentLoginRequest $request): JsonResponse
     {
@@ -33,6 +38,8 @@ class StudentAuthController extends Controller
         }
 
         $token = $student->createToken('student')->plainTextToken;
+
+        $this->logs->record('student.login', "{$student->full_name} signed in.", $student);
 
         return response()->json([
             'data'  => $student,
@@ -56,8 +63,19 @@ class StudentAuthController extends Controller
         ]);
     }
 
+    /** The authenticated student's own achievement milestones. */
+    public function achievements(Request $request, AchievementService $achievements): JsonResponse
+    {
+        return response()->json([
+            'data' => $achievements->forStudent($request->user()),
+        ]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
+        $student = $request->user();
+        $this->logs->record('student.logout', "{$student->full_name} signed out.", $student);
+
         $request->user()->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out successfully.']);

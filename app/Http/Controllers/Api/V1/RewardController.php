@@ -25,7 +25,7 @@ class RewardController extends Controller
     public function store(Request $request, Student $student, Badge $badge): JsonResponse
     {
         $this->authorizeOwner($request, $student);
-        $this->service->award($student, $badge);
+        $this->service->award($student, $badge, $request->user());
 
         return $this->badgesResponse($student->refresh());
     }
@@ -34,7 +34,7 @@ class RewardController extends Controller
     public function destroy(Request $request, Student $student, Badge $badge): JsonResponse
     {
         $this->authorizeOwner($request, $student);
-        $this->service->revoke($student, $badge);
+        $this->service->revoke($student, $badge, $request->user());
 
         return $this->badgesResponse($student->refresh());
     }

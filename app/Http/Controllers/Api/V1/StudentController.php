@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Student\Models\Student;
 use App\Domain\Student\Services\StudentService;
+use App\Domain\SystemLog\Services\SystemLogService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateStudentRequest;
 use App\Http\Requests\SyncBooksRequest;
@@ -13,7 +14,10 @@ use Illuminate\Http\Request;
 
 class StudentController extends Controller
 {
-    public function __construct(private StudentService $service) {}
+    public function __construct(
+        private StudentService $service,
+        private SystemLogService $logs,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -29,6 +33,13 @@ class StudentController extends Controller
 
         $student = $this->service->create($data);
 
+        $this->logs->record(
+            'student.created',
+            "{$request->user()->full_name} created the student account \"{$student->username}\" for {$student->full_name}.",
+            $student,
+            $request->user(),
+        );
+
         return response()->json(['data' => $student], 201);
     }
 
@@ -43,7 +54,20 @@ class StudentController extends Controller
     {
         $this->authorizeOwner($request, $student);
 
+        $changed = array_keys($request->validated());
         $student = $this->service->update($student, $request->validated());
+
+        $this->logs->record(
+            'student.updated',
+            sprintf(
+                '%s updated %s (%s).',
+                $request->user()->full_name,
+                $student->full_name,
+                implode(', ', $changed) ?: 'no fields',
+            ),
+            $student,
+            $request->user(),
+        );
 
         return response()->json(['data' => $student]);
     }
@@ -51,6 +75,14 @@ class StudentController extends Controller
     public function destroy(Request $request, Student $student): JsonResponse
     {
         $this->authorizeOwner($request, $student);
+
+        // Log before deleting: the student row (and its FK) disappears with it.
+        $this->logs->record(
+            'student.deleted',
+            "{$request->user()->full_name} deleted the student account \"{$student->username}\" ({$student->full_name}).",
+            null,
+            $request->user(),
+        );
 
         $this->service->delete($student);
 
@@ -77,6 +109,19 @@ class StudentController extends Controller
         )->all();
 
         $student->books()->sync($payload);
+
+        $titles = $student->books()->get()->pluck('title')->implode(', ');
+        $this->logs->record(
+            'student.books_assigned',
+            sprintf(
+                '%s assigned %s to %s.',
+                $request->user()->full_name,
+                $titles !== '' ? $titles : 'no books',
+                $student->full_name,
+            ),
+            $student,
+            $request->user(),
+        );
 
         return response()->json(['data' => $student->books()->get()]);
     }

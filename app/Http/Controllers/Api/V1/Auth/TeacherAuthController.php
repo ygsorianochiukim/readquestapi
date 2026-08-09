@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Auth;
 
+use App\Domain\SystemLog\Services\SystemLogService;
 use App\Domain\Teachers\Services\TeachersService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
@@ -12,12 +13,22 @@ use Illuminate\Http\Request;
 
 class TeacherAuthController extends Controller
 {
-    public function __construct(private TeachersService $service) {}
+    public function __construct(
+        private TeachersService $service,
+        private SystemLogService $logs,
+    ) {}
 
     public function register(RegisterTeacherRequest $request): JsonResponse
     {
         $teacher = $this->service->register($request->validated());
         $token = $teacher->createToken('teacher')->plainTextToken;
+
+        $this->logs->record(
+            'teacher.registered',
+            "{$teacher->full_name} created a teacher account ({$teacher->email}).",
+            null,
+            $teacher,
+        );
 
         return response()->json([
             'data' => $teacher,
@@ -39,6 +50,13 @@ class TeacherAuthController extends Controller
         }
 
         $token = $teacher->createToken('teacher')->plainTextToken;
+
+        $this->logs->record(
+            'teacher.login',
+            "{$teacher->full_name} signed in.",
+            null,
+            $teacher,
+        );
 
         return response()->json([
             'data' => $teacher,
@@ -63,11 +81,21 @@ class TeacherAuthController extends Controller
 
         $teacher->update($data);
 
+        $this->logs->record(
+            'teacher.profile_updated',
+            "{$teacher->full_name} updated their profile.",
+            null,
+            $teacher,
+        );
+
         return response()->json(['data' => $teacher->refresh()]);
     }
 
     public function logout(Request $request): JsonResponse
     {
+        $teacher = $request->user();
+        $this->logs->record('teacher.logout', "{$teacher->full_name} signed out.", null, $teacher);
+
         $request->user()->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out successfully.']);

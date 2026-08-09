@@ -37,7 +37,7 @@ class PronunciationReviewController extends Controller
         );
 
         return response()->json([
-            'data' => $this->service->validate($attempt),
+            'data' => $this->service->validate($attempt, $request->user()),
         ]);
     }
 }

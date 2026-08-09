@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Achievement\Services\AchievementService;
 use App\Domain\Badge\Services\RewardService;
 use App\Domain\Book\Models\Book;
 use App\Domain\Progress\Services\ProgressService;
@@ -17,6 +18,7 @@ class TeacherDashboardController extends Controller
         private ProgressService $progress,
         private PronunciationService $pronunciation,
         private RewardService $rewards,
+        private AchievementService $achievements,
     ) {}
 
     /** Overview stats + a per-student summary table for the teacher home. */
@@ -78,6 +80,7 @@ class TeacherDashboardController extends Controller
                 ],
                 'progress' => $this->progress->detailForStudent($student),
                 'badges' => $this->rewards->forStudent($student),
+                'achievements' => $this->achievements->forStudent($student),
                 'pronunciation' => $this->pronunciation->forStudent($student->id),
             ],
         ]);

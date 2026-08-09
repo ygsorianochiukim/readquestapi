@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Book\Models\Book;
+use App\Domain\Book\Models\BookPage;
 use App\Domain\Chapter\Models\Chapter;
+use App\Domain\Progress\Services\PageProgressService;
 use App\Domain\Progress\Services\ProgressService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SubmitQuizRequest;
@@ -12,7 +14,10 @@ use Illuminate\Http\Request;
 
 class StudentLearningController extends Controller
 {
-    public function __construct(private ProgressService $progress) {}
+    public function __construct(
+        private ProgressService $progress,
+        private PageProgressService $pageProgress,
+    ) {}
 
     /** Overview of all assigned books with completion + lock state. */
     public function overview(Request $request): JsonResponse
@@ -83,6 +88,30 @@ class StudentLearningController extends Controller
         $progress = $this->progress->markGameCompleted($request->user(), $chapter);
 
         return response()->json(['data' => $progress]);
+    }
+
+    /** Pages of an assigned page-based book, with this pupil's progress. */
+    public function bookPages(Request $request, Book $book): JsonResponse
+    {
+        $this->assertAssigned($request, $book);
+
+        return response()->json([
+            'data' => $this->pageProgress->forBook($request->user(), $book),
+        ]);
+    }
+
+    /** The pupil marked a page as read. */
+    public function markPageRead(Request $request, BookPage $page): JsonResponse
+    {
+        $book = $page->book;
+        abort_unless($book !== null, 404, 'This page no longer exists.');
+        $this->assertAssigned($request, $book);
+
+        $this->pageProgress->markRead($request->user(), $page);
+
+        return response()->json([
+            'data' => $this->pageProgress->forBook($request->user(), $book),
+        ]);
     }
 
     private function assertAssigned(Request $request, Book $book): void

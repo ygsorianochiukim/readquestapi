@@ -94,16 +94,19 @@ class DatabaseSeeder extends Seeder
 
         // ---- Sample gamification badges ----
         $badges = [
-            ['name' => 'First Steps', 'icon' => '👣', 'description' => 'Completed your very first chapter.', 'criteria' => 'Finish 1 chapter', 'points' => 10],
-            ['name' => 'Bookworm', 'icon' => '🐛', 'description' => 'Finished a whole book.', 'criteria' => 'Complete all 4 chapters of a book', 'points' => 50],
-            ['name' => 'Clear Speaker', 'icon' => '🎤', 'description' => 'Great pronunciation score.', 'criteria' => 'Score 90%+ on a pronunciation activity', 'points' => 30],
-            ['name' => 'Quiz Master', 'icon' => '🧠', 'description' => 'Aced a chapter quiz.', 'criteria' => 'Get a perfect quiz score', 'points' => 20],
-            ['name' => 'Reading Star', 'icon' => '⭐', 'description' => 'Finished all six books!', 'criteria' => 'Complete every book', 'points' => 100],
+            ['name' => 'First Steps', 'icon' => 'footprints', 'description' => 'Completed your very first chapter.', 'criteria' => 'Finish 1 chapter', 'points' => 10],
+            ['name' => 'Bookworm', 'icon' => 'feather', 'description' => 'Finished a whole book.', 'criteria' => 'Complete all 4 chapters of a book', 'points' => 50],
+            ['name' => 'Clear Speaker', 'icon' => 'mic', 'description' => 'Great pronunciation score.', 'criteria' => 'Score 90%+ on a pronunciation activity', 'points' => 30],
+            ['name' => 'Quiz Master', 'icon' => 'quiz', 'description' => 'Aced a chapter quiz.', 'criteria' => 'Get a perfect quiz score', 'points' => 20],
+            ['name' => 'Reading Star', 'icon' => 'star', 'description' => 'Finished all six books!', 'criteria' => 'Complete every book', 'points' => 100],
         ];
 
         foreach ($badges as $badge) {
-            Badge::firstOrCreate(['name' => $badge['name']], $badge);
+            Badge::updateOrCreate(['name' => $badge['name']], $badge);
         }
+
+        // ---- Achievement milestones (earned from tracked progress) ----
+        $this->call(AchievementSeeder::class);
 
         // ---- Assign books to the demo students so they have a reading journey ----
         $firstThreeBooks = Book::orderBy('sequence')->take(3)->pluck('id');
