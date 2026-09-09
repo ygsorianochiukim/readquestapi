@@ -24,6 +24,8 @@ class PronunciationAttempt extends Model
         'fluency_score',
         'completeness_score',
         'pron_score',
+        'text_match_score',
+        'is_off_script',
         'is_validated',
         'validated_at',
     ];
@@ -33,6 +35,8 @@ class PronunciationAttempt extends Model
         'fluency_score' => 'float',
         'completeness_score' => 'float',
         'pron_score' => 'float',
+        'text_match_score' => 'float',
+        'is_off_script' => 'boolean',
         'is_validated' => 'boolean',
         'validated_at' => 'datetime',
     ];

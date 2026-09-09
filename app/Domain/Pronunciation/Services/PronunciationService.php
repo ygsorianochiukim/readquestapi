@@ -23,9 +23,13 @@ class PronunciationService
     /** Auto-award the "Clear Speaker" badge at or above this score. */
     private const BADGE_THRESHOLD = 90;
 
+    /** Below this share of said-words-on-the-page, the pupil read something else. */
+    private const OFF_SCRIPT_BELOW = 50;
+
     public function __construct(
         private PronunciationRepository $repository,
         private PronunciationAssessmentService $assessment,
+        private ReadingMatchService $match,
         private RewardService $rewards,
         private ProgressService $progress,
         private PageProgressService $pageProgress,
@@ -50,6 +54,18 @@ class PronunciationService
 
         $scores = $this->assessment->assess($referenceText, $audioBytes);
 
+        // Azure is handed the page text up front, so its score says how well the
+        // audio aligned to that text — not whether the pupil read it. Match the
+        // words we actually heard against the page and cap the overall score
+        // with them, so reading something else can never score as a good read.
+        $reading = $this->match->evaluate($referenceText, $scores['recognized_text']);
+        // Off-script is about saying words that are not on the page; reading
+        // only part of the page is a low match, not a wrong page.
+        $offScript = $reading['on_page'] < self::OFF_SCRIPT_BELOW;
+        $pronScore = $scores['pron_score'] === null
+            ? null
+            : min((float) $scores['pron_score'], $reading['match']);
+
         $attempt = $this->repository->create([
             'student_id' => $student->id,
             'book_page_id' => $bookPageId,
@@ -60,16 +76,18 @@ class PronunciationService
             'accuracy_score' => $scores['accuracy_score'],
             'fluency_score' => $scores['fluency_score'],
             'completeness_score' => $scores['completeness_score'],
-            'pron_score' => $scores['pron_score'],
+            'pron_score' => $pronScore,
+            'text_match_score' => $reading['match'],
+            'is_off_script' => $offScript,
         ]);
 
-        $this->maybeAwardBadge($student, $scores['pron_score']);
+        $this->maybeAwardBadge($student, $pronScore);
 
         // A read-aloud attempt on a standard chapter counts toward that chapter's progress.
         if ($chapterId) {
             $chapter = Chapter::find($chapterId);
             if ($chapter) {
-                $this->progress->recordPronunciation($student, $chapter, $scores['pron_score']);
+                $this->progress->recordPronunciation($student, $chapter, $pronScore);
             }
         }
 
@@ -77,16 +95,17 @@ class PronunciationService
         if ($bookPageId) {
             $page = BookPage::with('book')->find($bookPageId);
             if ($page) {
-                $this->pageProgress->recordPronunciation($student, $page, $scores['pron_score']);
+                $this->pageProgress->recordPronunciation($student, $page, $pronScore);
             }
         }
 
         $this->logs->record(
             'pronunciation.assessed',
             sprintf(
-                '%s recorded a read-aloud and scored %s overall.',
+                '%s recorded a read-aloud and scored %s overall.%s',
                 $student->full_name,
-                $scores['pron_score'] !== null ? round($scores['pron_score']).'%' : 'no score',
+                $pronScore !== null ? round($pronScore).'%' : 'no score',
+                $offScript ? ' The words did not match the page.' : '',
             ),
             $student,
         );
