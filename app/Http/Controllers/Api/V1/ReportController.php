@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Achievement\Services\AchievementService;
 use App\Domain\Badge\Services\RewardService;
 use App\Domain\Progress\Services\ProgressService;
+use App\Domain\Pronunciation\Models\PronunciationAttempt;
+use App\Domain\Pronunciation\Models\PronunciationWord;
 use App\Domain\Pronunciation\Services\PronunciationService;
 use App\Domain\Student\Models\Student;
 use App\Domain\SystemLog\Services\SystemLogService;
@@ -120,7 +122,10 @@ class ReportController extends Controller
 
         $rows[] = [];
         $rows[] = ['PRONUNCIATION ATTEMPTS'];
-        $rows[] = ['Date', 'Accuracy', 'Fluency', 'Completeness', 'Overall', 'Validated', 'Reference text'];
+        $rows[] = [
+            'Date', 'Accuracy', 'Fluency', 'Completeness', 'Intonation', 'Diction',
+            'Overall', 'Teacher override', 'Validated', 'Missed words', 'Reference text',
+        ];
 
         foreach ($this->pronunciation->forStudent($student->id) as $attempt) {
             $rows[] = [
@@ -128,8 +133,14 @@ class ReportController extends Controller
                 $attempt->accuracy_score,
                 $attempt->fluency_score,
                 $attempt->completeness_score,
-                $attempt->pron_score,
+                $attempt->prosody_score,
+                $attempt->diction_score,
+                // The score that counts — a teacher's override when there is
+                // one — so the export agrees with the report on screen.
+                $attempt->effective_score,
+                $this->yesNo($attempt->teacher_score !== null),
                 $this->yesNo((bool) $attempt->is_validated),
+                $this->missedWordList($attempt),
                 str($attempt->reference_text ?? '')->limit(120)->value(),
             ];
         }
@@ -180,6 +191,20 @@ class ReportController extends Controller
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    /**
+     * The words an attempt got wrong, in page order, for one CSV cell. A word
+     * the pupil later put right on a retry is marked, not dropped — it was
+     * still missed in the reading.
+     */
+    private function missedWordList(PronunciationAttempt $attempt): string
+    {
+        return collect($attempt->missedWords())
+            ->map(fn (PronunciationWord $word) => $word->is_corrected
+                ? "{$word->word} (corrected)"
+                : $word->word)
+            ->implode(', ');
     }
 
     private function yesNo(bool $value): string

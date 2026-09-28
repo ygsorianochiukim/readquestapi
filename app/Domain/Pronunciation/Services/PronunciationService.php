@@ -10,6 +10,7 @@ use App\Domain\Chapter\Models\Chapter;
 use App\Domain\Progress\Services\PageProgressService;
 use App\Domain\Progress\Services\ProgressService;
 use App\Domain\Pronunciation\Models\PronunciationAttempt;
+use App\Domain\Pronunciation\Models\PronunciationWord;
 use App\Domain\Pronunciation\Repositories\PronunciationRepository;
 use App\Domain\Speech\Services\PronunciationAssessmentService;
 use App\Domain\Student\Models\Student;
@@ -30,6 +31,7 @@ class PronunciationService
         private PronunciationRepository $repository,
         private PronunciationAssessmentService $assessment,
         private ReadingMatchService $match,
+        private ReadingPaceService $pace,
         private RewardService $rewards,
         private ProgressService $progress,
         private PageProgressService $pageProgress,
@@ -48,6 +50,7 @@ class PronunciationService
         UploadedFile $audio,
         ?int $bookPageId,
         ?int $chapterId,
+        ?int $paragraphIndex = null,
     ): PronunciationAttempt {
         $audioBytes = file_get_contents($audio->getRealPath());
         $path = $audio->store("pronunciation/{$student->id}", 'public');
@@ -66,33 +69,54 @@ class PronunciationService
             ? null
             : min((float) $scores['pron_score'], $reading['match']);
 
+        // Pace is banded against the level of the book this text came from, so
+        // a Level 1 reader is not measured against a Level 5 target.
+        $pace = $this->pace->evaluate(
+            $scores['words'],
+            $this->readingLevelFor($bookPageId, $chapterId),
+        );
+
         $attempt = $this->repository->create([
             'student_id' => $student->id,
             'book_page_id' => $bookPageId,
             'chapter_id' => $chapterId,
+            'paragraph_index' => $paragraphIndex,
             'reference_text' => $referenceText,
             'recognized_text' => $scores['recognized_text'],
             'audio_path' => $path,
             'accuracy_score' => $scores['accuracy_score'],
             'fluency_score' => $scores['fluency_score'],
             'completeness_score' => $scores['completeness_score'],
+            'prosody_score' => $scores['prosody_score'],
+            'diction_score' => $scores['diction_score'] ?? null,
             'pron_score' => $pronScore,
             'text_match_score' => $reading['match'],
             'is_off_script' => $offScript,
+            'words_per_minute' => $pace['words_per_minute'],
+            'pace' => $pace['pace'],
+            'duration_ms' => $scores['duration_ms'],
         ]);
+
+        // The per-word verdicts are what the reader colours the page with and
+        // what the teacher report groups a child's recurring misses by.
+        $this->repository->saveWords($attempt, $scores['words']);
 
         $this->maybeAwardBadge($student, $pronScore);
 
-        // A read-aloud attempt on a standard chapter counts toward that chapter's progress.
+        // A read-aloud attempt on a standard chapter counts toward that chapter's
+        // progress — one paragraph at a time when it was read page by page.
         if ($chapterId) {
             $chapter = Chapter::find($chapterId);
             if ($chapter) {
-                $this->progress->recordPronunciation($student, $chapter, $pronScore);
+                $paragraphIndex === null
+                    ? $this->progress->recordPronunciation($student, $chapter, $pronScore)
+                    : $this->progress->recordParagraphReading($student, $chapter);
             }
         }
 
-        // …and one on a scanned page counts toward that page's progress.
-        if ($bookPageId) {
+        // …and one on a scanned page counts toward that page's progress. A
+        // paragraph of a chapter is not the page's own read-aloud.
+        if ($bookPageId && $paragraphIndex === null) {
             $page = BookPage::with('book')->find($bookPageId);
             if ($page) {
                 $this->pageProgress->recordPronunciation($student, $page, $pronScore);
@@ -113,7 +137,7 @@ class PronunciationService
         // Book-page attempts never touch chapter progress, so sync milestones here too.
         $this->achievements->sync($student->refresh());
 
-        return $attempt;
+        return $attempt->load('words');
     }
 
     /**
@@ -133,7 +157,7 @@ class PronunciationService
             sprintf(
                 '%s validated a read-aloud score of %s for %s.',
                 $by?->full_name ?? 'A teacher',
-                $attempt->pron_score !== null ? round($attempt->pron_score).'%' : 'no score',
+                $attempt->effective_score !== null ? round($attempt->effective_score).'%' : 'no score',
                 $attempt->student?->full_name ?? 'a student',
             ),
             $attempt->student,
@@ -143,9 +167,89 @@ class PronunciationService
         return $validated;
     }
 
+    /**
+     * A teacher replaces the machine's verdict with their own.
+     *
+     * The override has to flow back into progress, or a teacher could pass a
+     * child on the report while the app still refuses to unlock their next
+     * chapter — which is exactly the confusion manual verification exists to
+     * resolve.
+     */
+    public function overrideScore(
+        PronunciationAttempt $attempt,
+        ?float $score,
+        ?string $note,
+        ?Teachers $by = null,
+    ): PronunciationAttempt {
+        $previous = $attempt->effective_score;
+
+        $attempt = $this->repository->applyTeacherScore($attempt, $score, $note);
+
+        $student = $attempt->student;
+
+        if ($student) {
+            // Re-run the same progress path the automatic score took, with the
+            // score that now counts.
+            if ($attempt->chapter_id && $chapter = Chapter::find($attempt->chapter_id)) {
+                $this->progress->recordPronunciation($student, $chapter, $attempt->effective_score);
+            }
+
+            if ($attempt->book_page_id && $page = BookPage::with('book')->find($attempt->book_page_id)) {
+                $this->pageProgress->recordPronunciation($student, $page, $attempt->effective_score);
+            }
+
+            $this->achievements->sync($student->refresh());
+        }
+
+        $this->logs->record(
+            'pronunciation.overridden',
+            sprintf(
+                '%s changed a read-aloud score for %s from %s to %s.%s',
+                $by?->full_name ?? 'A teacher',
+                $student?->full_name ?? 'a student',
+                $previous !== null ? round($previous).'%' : 'no score',
+                $attempt->effective_score !== null ? round($attempt->effective_score).'%' : 'no score',
+                filled($note) ? " Note: {$note}" : '',
+            ),
+            $student,
+            $by,
+        );
+
+        return $attempt;
+    }
+
+    /**
+     * A pupil tapped a word they got wrong and said it again.
+     *
+     * Only the word is touched: the attempt's score is what the reading
+     * earned, and a word fixed afterwards must not quietly pass a page. What
+     * the teacher gets is the knowledge that the child *can* say it.
+     */
+    public function recordWordRetry(PronunciationWord $word, float $accuracy): PronunciationWord
+    {
+        return $this->repository->recordWordRetry($word, $accuracy);
+    }
+
     public function pendingCountForTeacher(int $teacherId): int
     {
         return $this->repository->pendingCountForTeacher($teacherId);
+    }
+
+    /**
+     * The reading level of the book this text belongs to — pace is judged
+     * against it. Null when the attempt is not tied to a book.
+     */
+    private function readingLevelFor(?int $bookPageId, ?int $chapterId): ?string
+    {
+        if ($bookPageId) {
+            return BookPage::with('book')->find($bookPageId)?->book?->reading_level;
+        }
+
+        if ($chapterId) {
+            return Chapter::with('book')->find($chapterId)?->book?->reading_level;
+        }
+
+        return null;
     }
 
     private function maybeAwardBadge(Student $student, ?float $pronScore): void

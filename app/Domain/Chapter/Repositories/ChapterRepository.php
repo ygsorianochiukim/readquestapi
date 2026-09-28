@@ -13,12 +13,8 @@ class ChapterRepository
      */
     public function forBook(Book $book): Collection
     {
-        return $book->chapters()->withCount('quizQuestions')->get();
-    }
-
-    public function create(Book $book, array $data): Chapter
-    {
-        return $book->chapters()->create($data);
+        // pages_count: a picture book's chapter is measured in pages.
+        return $book->chapters()->withCount(['quizQuestions', 'pages'])->get();
     }
 
     public function update(Chapter $chapter, array $data): Chapter

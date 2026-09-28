@@ -33,4 +33,14 @@ class Book extends Model
     {
         return $this->hasMany(BookPage::class)->orderBy('page_number');
     }
+
+    /**
+     * A picture book: pupils read it page by page, its pages grouped into
+     * chapters. A standard book's chapters carry story text and run the full
+     * learning loop (read, read aloud, game, quiz) instead.
+     */
+    public function isPageBased(): bool
+    {
+        return $this->type === 'scanned';
+    }
 }

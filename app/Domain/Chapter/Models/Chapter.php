@@ -3,6 +3,7 @@
 namespace App\Domain\Chapter\Models;
 
 use App\Domain\Book\Models\Book;
+use App\Domain\Book\Models\BookPage;
 use App\Domain\QuizQuestion\Models\QuizQuestion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -33,5 +34,11 @@ class Chapter extends Model
     public function quizQuestions(): HasMany
     {
         return $this->hasMany(QuizQuestion::class);
+    }
+
+    /** The page scans this chapter was built from — a picture book's content. */
+    public function pages(): HasMany
+    {
+        return $this->hasMany(BookPage::class)->orderBy('page_number');
     }
 }

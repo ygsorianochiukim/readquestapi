@@ -4,25 +4,32 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Book\Models\Book;
 use App\Domain\Book\Services\BookService;
+use App\Domain\Progress\Services\ClassProgressService;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\CreateBookRequest;
 use App\Http\Requests\UpdateBookRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
+/**
+ * Books are made by uploading reading material (see IngestController), never
+ * as an empty shell typed in here. This is for listing, editing a book's
+ * details (title, level, cover) and removing it.
+ */
 class BookController extends Controller
 {
-    public function __construct(private BookService $service) {}
+    public function __construct(
+        private BookService $service,
+        private ClassProgressService $classProgress,
+    ) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->service->list()]);
-    }
-
-    public function store(CreateBookRequest $request): JsonResponse
-    {
-        $book = $this->service->create($request->validated());
-
-        return response()->json(['data' => $book], 201);
+        return response()->json([
+            'data' => $this->service->list(),
+            // How far this teacher's own class has got through each book, so
+            // the shelf shows whether the material is actually being read.
+            'progress' => $this->classProgress->bookSummaries($request->user()),
+        ]);
     }
 
     public function show(Book $book): JsonResponse

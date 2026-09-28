@@ -22,6 +22,10 @@ class ReaderController extends Controller
     /** A single book with its pages and chapters for the reader. */
     public function show(Book $book): JsonResponse
     {
+        // A draft is a book an upload is still building. It is kept out of the
+        // library listing, and guessing its id must not be a way in either.
+        abort_if($book->status === 'draft', 404, 'That book is not available yet.');
+
         return response()->json([
             'data' => $book->load(['pages', 'chapters']),
         ]);

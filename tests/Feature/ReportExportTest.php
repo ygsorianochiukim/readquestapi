@@ -1,5 +1,7 @@
 <?php
 
+use App\Domain\Pronunciation\Models\PronunciationAttempt;
+use App\Domain\Pronunciation\Repositories\PronunciationRepository;
 use App\Domain\SystemLog\Models\SystemLog;
 use Database\Seeders\AchievementSeeder;
 
@@ -53,4 +55,39 @@ it('refuses to export a report for another teacher\'s student', function () {
     $this->withHeaders(teacherHeaders($otherTeacher))
         ->getJson("/api/v1/reports/students/{$student->id}.csv")
         ->assertStatus(403);
+});
+
+it('exports the score that counts and the words each reading missed', function () {
+    $teacher = makeTeacher();
+    $student = makeStudent($teacher);
+
+    $attempt = PronunciationAttempt::create([
+        'student_id' => $student->id,
+        'reference_text' => 'the cat sat on the mat',
+        'recognized_text' => 'the cat sat on the',
+        'accuracy_score' => 40.0,
+        'diction_score' => 55.5,
+        'pron_score' => 41.25,
+        'teacher_score' => 77.5,
+    ]);
+
+    app(PronunciationRepository::class)->saveWords($attempt, [
+        ['word' => 'the', 'accuracy_score' => 90, 'error_type' => 'None'],
+        ['word' => 'cat', 'accuracy_score' => 20, 'error_type' => 'Mispronunciation'],
+        ['word' => 'mat', 'accuracy_score' => null, 'error_type' => 'Omission'],
+    ]);
+    // The pupil got "cat" right on a second go.
+    $attempt->words()->where('word', 'cat')->update(['retry_accuracy' => 85]);
+
+    $csv = $this->withHeaders(teacherHeaders($teacher))
+        ->get("/api/v1/reports/students/{$student->id}.csv")
+        ->assertOk()
+        ->streamedContent();
+
+    expect($csv)->toContain('Diction')
+        ->and($csv)->toContain('55.5')
+        // The teacher's override, not the machine's 41.25.
+        ->and($csv)->toContain('77.5')
+        ->and($csv)->not->toContain('41.25')
+        ->and($csv)->toContain('"cat (corrected), mat"');
 });

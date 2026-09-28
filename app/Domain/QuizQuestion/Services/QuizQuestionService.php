@@ -9,7 +9,10 @@ use Illuminate\Database\Eloquent\Collection;
 
 class QuizQuestionService
 {
-    public function __construct(private QuizQuestionRepository $repository) {}
+    public function __construct(
+        private QuizQuestionRepository $repository,
+        private QuizGeneratorService $generator,
+    ) {}
 
     /**
      * @return Collection<int, QuizQuestion>
@@ -19,14 +22,26 @@ class QuizQuestionService
         return $this->repository->forChapter($chapter);
     }
 
-    public function create(Chapter $chapter, array $data): QuizQuestion
+    /**
+     * Write the chapter's generated questions again from its text. Questions
+     * the teacher edited are kept.
+     *
+     * @return Collection<int, QuizQuestion>
+     */
+    public function regenerate(Chapter $chapter): Collection
     {
-        return $this->repository->create($chapter, $data);
+        $this->generator->regenerate($chapter);
+
+        return $this->repository->forChapter($chapter);
     }
 
+    /**
+     * A teacher's correction. Once edited, the question is theirs: a later
+     * regenerate leaves it alone.
+     */
     public function update(QuizQuestion $question, array $data): QuizQuestion
     {
-        return $this->repository->update($question, $data);
+        return $this->repository->update($question, $data + ['is_generated' => false]);
     }
 
     public function delete(QuizQuestion $question): void

@@ -30,24 +30,16 @@ class ChapterNarrationController extends Controller
             ], 503);
         }
 
-        // Cache keyed by chapter + a hash of the text, so edits regenerate audio.
-        $cachePath = "narration/chapter-{$chapter->id}-".md5($chapter->story_text).'.mp3';
+        // Made once per wording and voice, then served from disk.
+        try {
+            $path = $tts->cachedAudio('chapter-'.$chapter->id, $chapter->story_text);
+        } catch (Throwable $exception) {
+            report($exception);
 
-        if (! Storage::exists($cachePath)) {
-            try {
-                $audio = $tts->synthesize($chapter->story_text);
-            } catch (Throwable $exception) {
-                report($exception);
-
-                return response()->json([
-                    'message' => 'Could not generate narration. Please check the Azure Speech credentials and region.',
-                ], 502);
-            }
-
-            Storage::put($cachePath, $audio);
+            return response()->json(['message' => $tts->failureMessage($exception)], 502);
         }
 
-        return response(Storage::get($cachePath), 200)
+        return response(Storage::get($path), 200)
             ->header('Content-Type', 'audio/mpeg')
             ->header('Cache-Control', 'public, max-age=86400');
     }

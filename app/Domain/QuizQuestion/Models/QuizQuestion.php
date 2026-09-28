@@ -15,10 +15,12 @@ class QuizQuestion extends Model
         'question_text',
         'choices',
         'correct_answer',
+        'is_generated',
     ];
 
     protected $casts = [
         'choices' => 'array',
+        'is_generated' => 'boolean',
     ];
 
     public function chapter(): BelongsTo

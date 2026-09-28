@@ -15,7 +15,6 @@ class UpdateBookRequest extends FormRequest
     {
         return [
             'title' => ['sometimes', 'required', 'string', 'max:255'],
-            'type' => ['nullable', 'string', 'in:standard,scanned'],
             'description' => ['nullable', 'string'],
             'cover_image_url' => ['nullable', 'string', 'max:2048'],
             'reading_level' => ['nullable', 'string', 'max:255'],

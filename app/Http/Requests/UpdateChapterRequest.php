@@ -26,7 +26,6 @@ class UpdateChapterRequest extends FormRequest
             'title' => ['sometimes', 'required', 'string', 'max:255'],
             'story_text' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string', 'max:2048'],
-            'audio_url' => ['nullable', 'string', 'max:2048'],
         ];
     }
 }

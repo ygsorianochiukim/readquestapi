@@ -5,6 +5,7 @@ namespace App\Domain\Achievement\Services;
 use App\Domain\Achievement\Models\Achievement;
 use App\Domain\Achievement\Repositories\AchievementRepository;
 use App\Domain\Book\Models\Book;
+use App\Domain\Celebration\CelebrationBag;
 use App\Domain\Chapter\Models\Chapter;
 use App\Domain\Progress\Models\ReadingProgress;
 use App\Domain\Progress\Services\PageProgressService;
@@ -38,6 +39,7 @@ class AchievementService
         private AchievementRepository $repository,
         private SystemLogService $logs,
         private PageProgressService $pages,
+        private CelebrationBag $celebrations,
     ) {}
 
     /**
@@ -118,6 +120,8 @@ class AchievementService
 
             $newlyUnlocked[] = $achievement;
         }
+
+        $this->celebrations->achievementsUnlocked($newlyUnlocked);
 
         return $newlyUnlocked;
     }

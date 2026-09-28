@@ -24,14 +24,32 @@ class OcrService
      */
     public function extractText(string $imageBytes): string
     {
+        return implode("\n", $this->extractPages($imageBytes));
+    }
+
+    /**
+     * Read a whole document and return its text one entry per page.
+     *
+     * The Read API takes a PDF as happily as it takes a photo, and answers with
+     * a result per page either way. That is the escape hatch for hosts that
+     * cannot render PDF pages to images: the words can still be recovered, even
+     * when the pictures cannot.
+     *
+     * @param  string  $contentType  `application/pdf` for a PDF, otherwise the image type
+     * @return list<string>
+     *
+     * @throws RuntimeException on failure or timeout.
+     */
+    public function extractPages(string $bytes, string $contentType = 'application/octet-stream'): array
+    {
         $key = config('services.azure_vision.key');
         $endpoint = rtrim((string) config('services.azure_vision.endpoint'), '/');
 
         $submit = Http::withHeaders([
             'Ocp-Apim-Subscription-Key' => $key,
         ])
-            ->withBody($imageBytes, 'application/octet-stream')
-            ->timeout(30)
+            ->withBody($bytes, $contentType)
+            ->timeout(60)
             ->post("{$endpoint}/vision/v3.2/read/analyze");
 
         if ($submit->status() !== 202) {
@@ -45,8 +63,12 @@ class OcrService
             throw new RuntimeException('Azure Vision did not return an operation location.');
         }
 
-        // Poll for the result (Read is asynchronous).
-        for ($attempt = 0; $attempt < 20; $attempt++) {
+        // Poll for the result (Read is asynchronous). A single photo comes back
+        // in a second or two; a long PDF genuinely takes a while, so the ceiling
+        // is generous rather than tight.
+        $deadline = microtime(true) + 180;
+
+        while (microtime(true) < $deadline) {
             usleep(700_000); // 0.7s between polls
 
             $poll = Http::withHeaders([
@@ -57,7 +79,7 @@ class OcrService
             $status = $data['status'] ?? '';
 
             if ($status === 'succeeded') {
-                return $this->joinLines($data);
+                return $this->pages($data);
             }
 
             if ($status === 'failed') {
@@ -95,18 +117,25 @@ class OcrService
     }
 
     /**
-     * Flatten the Read API result into newline-separated text.
+     * One newline-joined string per page of the result.
+     *
+     * @param  array<string, mixed>  $data
+     * @return list<string>
      */
-    private function joinLines(array $data): string
+    private function pages(array $data): array
     {
-        $lines = [];
+        $pages = [];
 
         foreach ($data['analyzeResult']['readResults'] ?? [] as $page) {
+            $lines = [];
+
             foreach ($page['lines'] ?? [] as $line) {
                 $lines[] = $line['text'];
             }
+
+            $pages[] = implode("\n", $lines);
         }
 
-        return implode("\n", $lines);
+        return $pages;
     }
 }

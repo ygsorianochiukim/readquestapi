@@ -2,6 +2,7 @@
 
 namespace App\Domain\Book\Models;
 
+use App\Domain\Chapter\Models\Chapter;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
@@ -12,12 +13,14 @@ class BookPage extends Model
 
     protected $fillable = [
         'book_id',
+        'chapter_id',
         'page_number',
         'image_path',
         'text',
     ];
 
     protected $casts = [
+        'chapter_id' => 'integer',
         'page_number' => 'integer',
     ];
 
@@ -26,6 +29,12 @@ class BookPage extends Model
     public function book(): BelongsTo
     {
         return $this->belongsTo(Book::class);
+    }
+
+    /** The chapter this page belongs to (every book is Book → Chapters → Pages). */
+    public function chapter(): BelongsTo
+    {
+        return $this->belongsTo(Chapter::class);
     }
 
     public function getImageUrlAttribute(): ?string

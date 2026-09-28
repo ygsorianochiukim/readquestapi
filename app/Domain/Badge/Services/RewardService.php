@@ -4,6 +4,7 @@ namespace App\Domain\Badge\Services;
 
 use App\Domain\Achievement\Services\AchievementService;
 use App\Domain\Badge\Models\Badge;
+use App\Domain\Celebration\CelebrationBag;
 use App\Domain\Student\Models\Student;
 use App\Domain\SystemLog\Services\SystemLogService;
 use App\Domain\Teachers\Models\Teachers;
@@ -15,6 +16,7 @@ class RewardService
     public function __construct(
         private AchievementService $achievements,
         private SystemLogService $logs,
+        private CelebrationBag $celebrations,
     ) {}
 
     /**
@@ -31,11 +33,13 @@ class RewardService
      * Award a badge to a student and add its points. No-op if already earned.
      *
      * @param  Teachers|null  $by  the teacher who awarded it, when done by hand
+     * @return bool whether this call is what earned it — the caller needs to
+     *              know, because only a badge earned *now* is worth celebrating
      */
-    public function award(Student $student, Badge $badge, ?Teachers $by = null): void
+    public function award(Student $student, Badge $badge, ?Teachers $by = null): bool
     {
         if ($student->badges()->where('badges.id', $badge->id)->exists()) {
-            return;
+            return false;
         }
 
         DB::transaction(function () use ($student, $badge) {
@@ -52,8 +56,16 @@ class RewardService
             $by,
         );
 
+        // A badge awarded by hand is news the teacher already knows; only one
+        // the child just earned belongs in their celebration.
+        if (! $by) {
+            $this->celebrations->badgeEarned($badge);
+        }
+
         // Earning a badge can complete a badge-count milestone.
         $this->achievements->sync($student->refresh());
+
+        return true;
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Domain\Progress\Services;
 
 use App\Domain\Book\Models\Book;
 use App\Domain\Book\Models\BookPage;
+use App\Domain\Celebration\CelebrationBag;
 use App\Domain\Progress\Models\PageProgress;
 use App\Domain\Progress\Repositories\PageProgressRepository;
 use App\Domain\Student\Models\Student;
@@ -22,6 +23,7 @@ class PageProgressService
     public function __construct(
         private PageProgressRepository $repository,
         private SystemLogService $logs,
+        private CelebrationBag $celebrations,
     ) {}
 
     /** The pupil marked this page as read. */
@@ -54,9 +56,13 @@ class PageProgressService
     /**
      * The pages of a book annotated with this pupil's progress.
      *
+     * With $chapterId only that chapter's pages are listed (and `chapter`
+     * summarises it); the totals always describe the whole book, so
+     * `is_completed` keeps meaning "the book is finished".
+     *
      * @return array<string, mixed>
      */
-    public function forBook(Student $student, Book $book): array
+    public function forBook(Student $student, Book $book, ?int $chapterId = null): array
     {
         $progressMap = $this->repository->forStudent($student->id);
         $pages = $book->pages()->orderBy('page_number')->get();
@@ -66,6 +72,7 @@ class PageProgressService
 
             return [
                 'id' => $page->id,
+                'chapter_id' => $page->chapter_id,
                 'page_number' => $page->page_number,
                 'has_text' => filled($page->text),
                 'is_read' => (bool) optional($progress)->is_read,
@@ -73,18 +80,62 @@ class PageProgressService
                 'best_score' => optional($progress)->best_score,
                 'is_completed' => optional($progress)->completed_at !== null,
             ];
-        })->values()->all();
+        })->values();
 
-        $total = count($items);
-        $completed = collect($items)->where('is_completed', true)->count();
+        $total = $items->count();
+        $completed = $items->where('is_completed', true)->count();
+        $chapters = $this->chaptersForBook($student, $book, $progressMap);
 
-        return [
-            'pages' => $items,
+        $result = [
+            'pages' => $chapterId === null
+                ? $items->all()
+                : $items->where('chapter_id', $chapterId)->values()->all(),
             'total_pages' => $total,
             'completed_pages' => $completed,
             'percent' => $total > 0 ? (int) round($completed / $total * 100) : 0,
             'is_completed' => $total > 0 && $completed === $total,
+            'page_chapters' => $chapters,
         ];
+
+        if ($chapterId !== null) {
+            $chapter = collect($chapters)->firstWhere('id', $chapterId);
+            $result['chapter'] = $chapter ? $chapter + [
+                'is_completed' => $chapter['page_count'] > 0 && $chapter['pages_completed'] === $chapter['page_count'],
+            ] : null;
+        }
+
+        return $result;
+    }
+
+    /**
+     * A picture book's chapters with this pupil's progress through each. A
+     * chapter is finished when every page in it is.
+     *
+     * @param  Collection<int, PageProgress>|null  $progressMap  reuse when looping over books
+     * @return list<array{id: int, title: string, sequence: int, page_count: int, pages_completed: int, first_page_id: ?int}>
+     */
+    public function chaptersForBook(Student $student, Book $book, ?Collection $progressMap = null): array
+    {
+        $progressMap ??= $this->repository->forStudent($student->id);
+        $chapters = $book->relationLoaded('chapters') ? $book->chapters : $book->chapters()->get();
+        $pages = ($book->relationLoaded('pages') ? $book->pages : $book->pages()->get())
+            ->sortBy('page_number')
+            ->groupBy('chapter_id');
+
+        return $chapters->sortBy('chapter_number')->map(function ($chapter) use ($pages, $progressMap) {
+            $inChapter = $pages->get($chapter->id, collect());
+
+            return [
+                'id' => $chapter->id,
+                'title' => $chapter->title,
+                'sequence' => $chapter->chapter_number,
+                'page_count' => $inChapter->count(),
+                'pages_completed' => $inChapter->filter(
+                    fn (BookPage $page) => optional($progressMap->get($page->id))->completed_at !== null
+                )->count(),
+                'first_page_id' => $inChapter->first()?->id,
+            ];
+        })->values()->all();
     }
 
     /**
@@ -138,6 +189,8 @@ class PageProgressService
 
         if ($done && $progress->completed_at === null) {
             $progress->completed_at = now();
+
+            $this->celebrations->milestone('page_completed');
 
             $this->logs->record(
                 'page.completed',

@@ -12,7 +12,11 @@ class BookRepository
      */
     public function all(): Collection
     {
-        return Book::withCount('chapters')
+        // Drafts are books an upload is still building. They belong on the
+        // upload screen, which owns them until the teacher publishes; showing
+        // them here would offer half-read books for assignment.
+        return Book::withCount(['chapters', 'pages'])
+            ->where('status', '!=', 'draft')
             ->orderBy('sequence')
             ->get();
     }

@@ -18,11 +18,6 @@ class BookService
         return $this->repository->all();
     }
 
-    public function create(array $data): Book
-    {
-        return $this->repository->create($data);
-    }
-
     public function update(Book $book, array $data): Book
     {
         return $this->repository->update($book, $data);

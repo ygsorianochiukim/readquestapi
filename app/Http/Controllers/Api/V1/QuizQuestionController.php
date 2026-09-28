@@ -6,10 +6,14 @@ use App\Domain\Chapter\Models\Chapter;
 use App\Domain\QuizQuestion\Models\QuizQuestion;
 use App\Domain\QuizQuestion\Services\QuizQuestionService;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\CreateQuizQuestionRequest;
 use App\Http\Requests\UpdateQuizQuestionRequest;
 use Illuminate\Http\JsonResponse;
 
+/**
+ * Quiz questions are generated from the chapter's scanned text; teachers
+ * review, correct or delete them, and can ask for a fresh set. There is no
+ * typing a question in from scratch.
+ */
 class QuizQuestionController extends Controller
 {
     public function __construct(private QuizQuestionService $service) {}
@@ -19,11 +23,16 @@ class QuizQuestionController extends Controller
         return response()->json(['data' => $this->service->listForChapter($chapter)]);
     }
 
-    public function store(CreateQuizQuestionRequest $request, Chapter $chapter): JsonResponse
+    /** Write the chapter's questions again from its current text. */
+    public function generate(Chapter $chapter): JsonResponse
     {
-        $question = $this->service->create($chapter, $request->validated());
+        abort_if(
+            blank($chapter->story_text),
+            422,
+            'This chapter has no text to make questions from yet. Scan its pages first.',
+        );
 
-        return response()->json(['data' => $question], 201);
+        return response()->json(['data' => $this->service->regenerate($chapter)]);
     }
 
     public function show(QuizQuestion $quizQuestion): JsonResponse

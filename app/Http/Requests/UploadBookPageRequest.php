@@ -15,6 +15,8 @@ class UploadBookPageRequest extends FormRequest
     {
         return [
             'image' => ['required', 'image', 'max:8192'], // up to 8 MB
+            // Which chapter the page goes in; the book's last chapter if absent.
+            'chapter_id' => ['nullable', 'integer'],
         ];
     }
 }
