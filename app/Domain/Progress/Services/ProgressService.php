@@ -82,6 +82,7 @@ class ProgressService
             $entry = [
                 'id' => $book->id,
                 'title' => $book->title,
+                'theme' => $book->theme,
                 'description' => $book->description,
                 'cover_image_url' => $book->cover_image_url,
                 'reading_level' => $book->reading_level,
@@ -148,6 +149,7 @@ class ProgressService
                 'id' => $chapter->id,
                 'chapter_number' => $chapter->chapter_number,
                 'title' => $chapter->title,
+                'theme' => $chapter->theme,
                 'image_url' => $chapter->image_url,
                 'has_quiz' => $chapter->quiz_questions_count > 0,
                 'is_locked' => ! $unlocked,

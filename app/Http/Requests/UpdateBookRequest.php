@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Domain\Theme\Themes;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateBookRequest extends FormRequest
@@ -20,6 +21,7 @@ class UpdateBookRequest extends FormRequest
             'reading_level' => ['nullable', 'string', 'max:255'],
             'sequence' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'string', 'in:active,inactive'],
+            'theme' => ['nullable', 'string', Themes::rule()],
         ];
     }
 }

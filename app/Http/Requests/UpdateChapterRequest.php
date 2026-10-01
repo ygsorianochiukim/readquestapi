@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Domain\Theme\Themes;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,6 +27,8 @@ class UpdateChapterRequest extends FormRequest
             'title' => ['sometimes', 'required', 'string', 'max:255'],
             'story_text' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string', 'max:2048'],
+            // Null: the chapter is read in its book's theme.
+            'theme' => ['nullable', 'string', Themes::rule()],
         ];
     }
 }

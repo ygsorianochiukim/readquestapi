@@ -124,6 +124,10 @@ Route::prefix('v1')->group(function () {
         // Student roster (scoped to the authenticated teacher)
         Route::apiResource('students', StudentController::class);
 
+        // Reading order. Registered before the resource so "order" is never
+        // taken for a book id.
+        Route::put('books/order', [BookController::class, 'reorder']);
+
         // Books (shared DepEd Leveled Reader content). No `store`: a book is
         // created by uploading its material (see ingest above), never by hand.
         Route::apiResource('books', BookController::class)->except(['store']);

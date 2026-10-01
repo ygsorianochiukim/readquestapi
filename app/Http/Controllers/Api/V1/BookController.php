@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Book\Models\Book;
 use App\Domain\Book\Services\BookService;
 use App\Domain\Progress\Services\ClassProgressService;
+use App\Domain\SystemLog\Services\SystemLogService;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ReorderBooksRequest;
 use App\Http\Requests\UpdateBookRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +22,7 @@ class BookController extends Controller
     public function __construct(
         private BookService $service,
         private ClassProgressService $classProgress,
+        private SystemLogService $logs,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -42,6 +45,27 @@ class BookController extends Controller
         $book = $this->service->update($book, $request->validated());
 
         return response()->json(['data' => $book]);
+    }
+
+    /** Put the shelf in reading order, first book first. */
+    public function reorder(ReorderBooksRequest $request): JsonResponse
+    {
+        $books = $this->service->reorder(
+            array_map('intval', $request->validated()['book_ids']),
+        );
+
+        $this->logs->record(
+            'book.reordered',
+            sprintf(
+                '%s changed the reading order: %s.',
+                $request->user()->full_name,
+                $books->pluck('title')->implode(', '),
+            ),
+            null,
+            $request->user(),
+        );
+
+        return response()->json(['data' => $books]);
     }
 
     public function destroy(Book $book): JsonResponse

@@ -23,6 +23,20 @@ class BookService
         return $this->repository->update($book, $data);
     }
 
+    /**
+     * Set the reading order: pupils meet the books in this order, and each
+     * unlocks when the one before it is finished.
+     *
+     * @param  list<int>  $bookIds
+     * @return Collection<int, Book>
+     */
+    public function reorder(array $bookIds): Collection
+    {
+        $this->repository->reorder($bookIds);
+
+        return $this->repository->all();
+    }
+
     public function delete(Book $book): void
     {
         $this->repository->delete($book);

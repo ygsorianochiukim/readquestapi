@@ -171,9 +171,9 @@ it('gives the student library each picture book\'s chapters and progress', funct
     $chapters = $book->chapters()->get();
 
     expect($entry['page_chapters'])->toEqual([
-        ['id' => $chapters[0]->id, 'title' => 'Part 1', 'sequence' => 1, 'page_count' => 2, 'pages_completed' => 1, 'first_page_id' => $firstPage->id],
+        ['id' => $chapters[0]->id, 'title' => 'Part 1', 'theme' => null, 'sequence' => 1, 'page_count' => 2, 'pages_completed' => 1, 'first_page_id' => $firstPage->id],
         [
-            'id' => $chapters[1]->id, 'title' => 'Part 2', 'sequence' => 2, 'page_count' => 3, 'pages_completed' => 0,
+            'id' => $chapters[1]->id, 'title' => 'Part 2', 'theme' => null, 'sequence' => 2, 'page_count' => 3, 'pages_completed' => 0,
             'first_page_id' => $book->pages()->where('page_number', 3)->value('id'),
         ],
     ])

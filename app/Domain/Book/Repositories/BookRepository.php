@@ -4,6 +4,7 @@ namespace App\Domain\Book\Repositories;
 
 use App\Domain\Book\Models\Book;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class BookRepository
 {
@@ -31,6 +32,27 @@ class BookRepository
         $book->update($data);
 
         return $book->refresh();
+    }
+
+    /**
+     * Number the given books 1, 2, 3… in the order given. Books left out keep
+     * their place after them, in the order they already had.
+     *
+     * @param  list<int>  $bookIds
+     */
+    public function reorder(array $bookIds): void
+    {
+        DB::transaction(function () use ($bookIds) {
+            $rest = Book::whereNotIn('id', $bookIds)
+                ->orderBy('sequence')
+                ->orderBy('id')
+                ->pluck('id')
+                ->all();
+
+            foreach ([...$bookIds, ...$rest] as $position => $bookId) {
+                Book::whereKey($bookId)->update(['sequence' => $position + 1]);
+            }
+        });
     }
 
     public function delete(Book $book): void

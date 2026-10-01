@@ -13,6 +13,7 @@ class Book extends Model
     protected $fillable = [
         'title',
         'type',
+        'theme',
         'description',
         'cover_image_url',
         'reading_level',

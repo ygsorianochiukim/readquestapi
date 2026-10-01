@@ -128,6 +128,7 @@ class PageProgressService
             return [
                 'id' => $chapter->id,
                 'title' => $chapter->title,
+                'theme' => $chapter->theme,
                 'sequence' => $chapter->chapter_number,
                 'page_count' => $inChapter->count(),
                 'pages_completed' => $inChapter->filter(

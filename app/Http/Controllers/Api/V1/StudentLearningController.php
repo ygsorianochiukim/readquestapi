@@ -41,6 +41,8 @@ class StudentLearningController extends Controller
             'data' => [
                 'id' => $book->id,
                 'title' => $book->title,
+                'type' => $book->type,
+                'theme' => $book->theme,
                 'description' => $book->description,
                 'reading_level' => $book->reading_level,
                 'chapters' => $this->progress->chaptersForBook($request->user(), $book),
