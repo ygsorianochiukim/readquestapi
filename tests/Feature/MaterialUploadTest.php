@@ -245,3 +245,73 @@ it('keeps the whole book as one chapter when it has no headings', function () {
     expect($chapters)->toHaveCount(1)
         ->and($chapters[0]['page_numbers'])->toEqual([1, 2]);
 });
+
+it('reads page photos with OpenAI, all at once, without touching Azure', function () {
+    Storage::fake('local');
+    Storage::fake('public');
+
+    config()->set('services.openai.key', 'sk-test');
+    config()->set('services.openai.base_url', 'https://openai.test/v1');
+    // Azure is set up too, and must not be used while OpenAI is.
+    config()->set('services.azure_vision.key', 'test-key');
+    config()->set('services.azure_vision.endpoint', 'https://vision.test');
+
+    $texts = ['The cat sat on the mat.', 'The dog ran across the field.', ''];
+    $read = 0;
+
+    Http::fake(function (Request $request) use ($texts, &$read) {
+        expect($request->url())->not->toContain('vision.test');
+
+        $name = $request['text']['format']['name'] ?? null;
+
+        if ($name === 'page_text') {
+            $text = $texts[$read++] ?? '';
+
+            return Http::response([
+                'status' => 'completed',
+                'output' => [['content' => [['type' => 'output_text', 'text' => json_encode(['text' => $text])]]]],
+            ]);
+        }
+
+        // The page sorter: leave the pages as they are.
+        return Http::response(['error' => ['message' => 'not faked']], 500);
+    });
+
+    $files = array_map(
+        fn (int $index) => UploadedFile::fake()->image("page-{$index}.jpg", 800, 1200),
+        range(1, count($texts)),
+    );
+
+    $response = $this->withHeaders(teacherHeaders(makeTeacher()))
+        ->post('/api/v1/ingest', ['files' => $files])
+        ->assertCreated();
+
+    $batch = IngestBatch::find($response->json('data.id'));
+    $pages = Book::find($batch->book_id)->pages()->orderBy('page_number')->get();
+
+    expect($batch->status)->toBe('ready')
+        ->and($pages)->toHaveCount(3)
+        ->and($pages[0]->text)->toBe('The cat sat on the mat.')
+        ->and($pages[1]->text)->toBe('The dog ran across the field.')
+        // A picture page with no words is not an error.
+        ->and($pages[2]->text)->toBeNull();
+});
+
+it('stops reading and tidies up when the teacher cancels', function () {
+    $teacher = makeTeacher();
+    $response = uploadPages($this, $teacher, ['The cat sat on the mat.']);
+    $batch = IngestBatch::find($response->json('data.id'));
+
+    $this->withHeaders(teacherHeaders($teacher))
+        ->deleteJson("/api/v1/ingest/{$batch->id}")
+        ->assertOk();
+
+    expect(IngestBatch::find($batch->id))->toBeNull()
+        ->and(Book::find($batch->book_id))->toBeNull();
+
+    // A job that picks it up afterwards finds nothing to do.
+    app(\App\Domain\Ingest\Jobs\ProcessIngestBatch::class, ['batchId' => $batch->id])
+        ->handle(app(\App\Domain\Ingest\Services\DocumentIngestService::class));
+
+    expect(Book::find($batch->book_id))->toBeNull();
+});

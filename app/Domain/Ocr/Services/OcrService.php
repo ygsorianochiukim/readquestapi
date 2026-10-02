@@ -2,8 +2,11 @@
 
 namespace App\Domain\Ocr\Services;
 
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 class OcrService
 {
@@ -25,6 +28,89 @@ class OcrService
     public function extractText(string $imageBytes): string
     {
         return implode("\n", $this->extractPages($imageBytes));
+    }
+
+    /**
+     * Read several images at once.
+     *
+     * Each Read call is mostly waiting — a submit, then polling until Azure is
+     * done — so reading a book's pages one after another spends nearly all its
+     * time idle. This submits them together and polls them together.
+     *
+     * A page that fails is not a failed book: its entry comes back null and the
+     * teacher reads it again from the preview.
+     *
+     * @param  array<int, string>  $images  image bytes, keyed however the caller likes
+     * @return array<int, ?string> the text of each image, under the same keys
+     */
+    public function extractTextMany(array $images): array
+    {
+        if ($images === []) {
+            return [];
+        }
+
+        $key = config('services.azure_vision.key');
+        $endpoint = rtrim((string) config('services.azure_vision.endpoint'), '/');
+        $results = array_fill_keys(array_keys($images), null);
+
+        $submits = Http::pool(fn (Pool $pool) => array_map(
+            fn ($index) => $pool->as((string) $index)
+                ->withHeaders(['Ocp-Apim-Subscription-Key' => $key])
+                ->withBody($images[$index], 'application/octet-stream')
+                ->timeout(60)
+                ->post("{$endpoint}/vision/v3.2/read/analyze"),
+            array_keys($images),
+        ));
+
+        /** @var array<string, string> $pending operation URL per image */
+        $pending = [];
+
+        foreach ($submits as $index => $submit) {
+            if ($submit instanceof Response && $submit->status() === 202 && $submit->header('Operation-Location')) {
+                $pending[$index] = $submit->header('Operation-Location');
+            } elseif ($submit instanceof Response) {
+                report(new RuntimeException($this->describeError($submit->status(), $submit->json())));
+            } elseif ($submit instanceof Throwable) {
+                report($submit);
+            }
+        }
+
+        $deadline = microtime(true) + 180;
+
+        while ($pending !== [] && microtime(true) < $deadline) {
+            usleep(700_000);
+
+            $polls = Http::pool(fn (Pool $pool) => array_map(
+                fn ($index) => $pool->as((string) $index)
+                    ->withHeaders(['Ocp-Apim-Subscription-Key' => $key])
+                    ->timeout(30)
+                    ->get($pending[$index]),
+                array_keys($pending),
+            ));
+
+            foreach ($polls as $index => $poll) {
+                if (! $poll instanceof Response) {
+                    continue; // a dropped poll is retried next round
+                }
+
+                $status = $poll->json('status') ?? '';
+
+                if ($status === 'succeeded') {
+                    $text = implode("\n", $this->pages($poll->json()));
+                    $results[$index] = blank($text) ? null : $text;
+                    unset($pending[$index]);
+                } elseif ($status === 'failed') {
+                    report(new RuntimeException('Azure Vision OCR failed.'));
+                    unset($pending[$index]);
+                }
+            }
+        }
+
+        if ($pending !== []) {
+            report(new RuntimeException('Azure Vision OCR timed out on '.count($pending).' page(s).'));
+        }
+
+        return $results;
     }
 
     /**

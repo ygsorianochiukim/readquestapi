@@ -85,7 +85,7 @@ it('says so plainly when scanning is not configured', function () {
             'file' => fakeImage(),
         ])
         ->assertStatus(503)
-        ->assertJsonPath('message', 'Scanning is not set up yet. Add AZURE_VISION_KEY and AZURE_VISION_ENDPOINT to enable it.');
+        ->assertJsonPath('message', 'Scanning is not set up yet. Add OPENAI_API_KEY (or AZURE_VISION_KEY and AZURE_VISION_ENDPOINT) to enable it.');
 });
 
 it('reports a friendly error when the scan fails', function () {

@@ -8,7 +8,7 @@ use App\Domain\Chapter\Models\Chapter;
 use App\Domain\Ingest\Services\ChapterContentAgent;
 use App\Domain\Ingest\Services\ChapterSegmenter;
 use App\Domain\Ingest\Services\PdfRasterizer;
-use App\Domain\Ocr\Services\OcrService;
+use App\Domain\Ocr\Services\PageReader;
 use App\Domain\Ocr\Services\PdfTextReader;
 use App\Domain\Speech\Jobs\PrepareChapterNarration;
 use App\Domain\QuizQuestion\Services\QuizGeneratorService;
@@ -31,7 +31,7 @@ use Throwable;
 class ChapterUploadService
 {
     public function __construct(
-        private OcrService $ocr,
+        private PageReader $ocr,
         private PdfTextReader $pdfText,
         private PdfRasterizer $rasterizer,
         private ChapterSegmenter $segmenter,

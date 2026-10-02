@@ -5,7 +5,7 @@ namespace App\Domain\Book\Services;
 use App\Domain\Book\Models\Book;
 use App\Domain\Book\Models\BookPage;
 use App\Domain\Chapter\Models\Chapter;
-use App\Domain\Ocr\Services\OcrService;
+use App\Domain\Ocr\Services\PageReader;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -14,7 +14,7 @@ use Throwable;
 
 class BookPageService
 {
-    public function __construct(private OcrService $ocr) {}
+    public function __construct(private PageReader $ocr) {}
 
     /**
      * @return Collection<int, BookPage>

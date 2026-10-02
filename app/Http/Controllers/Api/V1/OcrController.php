@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Ocr\Services\OcrService;
+use App\Domain\Ocr\Services\PageReader;
 use App\Domain\SystemLog\Services\SystemLogService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +16,7 @@ use Throwable;
 class OcrController extends Controller
 {
     public function __construct(
-        private OcrService $ocr,
+        private PageReader $ocr,
         private SystemLogService $logs,
     ) {}
 
@@ -28,7 +28,7 @@ class OcrController extends Controller
 
         if (! $this->ocr->isConfigured()) {
             return response()->json([
-                'message' => 'Scanning is not set up yet. Add AZURE_VISION_KEY and AZURE_VISION_ENDPOINT to enable it.',
+                'message' => 'Scanning is not set up yet. Add OPENAI_API_KEY (or AZURE_VISION_KEY and AZURE_VISION_ENDPOINT) to enable it.',
             ], 503);
         }
 

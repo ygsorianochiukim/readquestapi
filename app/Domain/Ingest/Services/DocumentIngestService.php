@@ -5,9 +5,10 @@ namespace App\Domain\Ingest\Services;
 use App\Domain\Book\Models\Book;
 use App\Domain\Book\Models\BookPage;
 use App\Domain\Chapter\Models\Chapter;
+use App\Domain\Ingest\Exceptions\IngestCancelled;
 use App\Domain\Ingest\Jobs\ProcessIngestBatch;
 use App\Domain\Ingest\Models\IngestBatch;
-use App\Domain\Ocr\Services\OcrService;
+use App\Domain\Ocr\Services\PageReader;
 use App\Domain\Ocr\Services\PdfTextReader;
 use App\Domain\QuizQuestion\Services\QuizGeneratorService;
 use App\Domain\Speech\Jobs\PrepareChapterNarration;
@@ -31,7 +32,7 @@ class DocumentIngestService
 {
     public function __construct(
         private PdfRasterizer $rasterizer,
-        private OcrService $ocr,
+        private PageReader $ocr,
         private PdfTextReader $pdfText,
         private ChapterSegmenter $segmenter,
         private ChapterContentAgent $contentAgent,
@@ -121,7 +122,13 @@ class DocumentIngestService
                 $pages = $this->contentAgent->keepChapterContent($pages);
             }
 
-            $batch->update(['status' => 'reading', 'pages_total' => count($pages), 'pages_done' => 0]);
+            // Cancelled while the pages were being sorted: nothing has been
+            // written to the book yet, so only the stored pictures are left.
+            if ($this->wasCancelled($batch)) {
+                $this->deleteImages(array_column($pages, 'image_path'));
+
+                return;
+            }
 
             $startNumber = (int) ($book->pages()->max('page_number') ?? 0);
 
@@ -132,11 +139,16 @@ class DocumentIngestService
                     'image_path' => $page['image_path'],
                     'text' => $page['text'],
                 ]);
-
-                $batch->increment('pages_done');
             }
 
-            $batch->update(['status' => 'ready', 'completed_at' => now()]);
+            $batch->update([
+                'status' => 'ready',
+                'pages_total' => count($pages),
+                'pages_done' => count($pages),
+                'completed_at' => now(),
+            ]);
+        } catch (IngestCancelled) {
+            return;
         } catch (Throwable $exception) {
             report($exception);
             $this->fail($batch, $exception->getMessage());
@@ -237,9 +249,18 @@ class DocumentIngestService
         return $book->refresh();
     }
 
-    /** Throw the draft away — the teacher decided the scan was no good. */
+    /**
+     * Throw the draft away — the teacher decided the scan was no good, or
+     * cancelled it while it was still being read. A running job notices the
+     * batch is gone and tidies up the pages it had got to.
+     */
     public function discard(IngestBatch $batch): void
     {
+        // Not started yet, so no job will be around to delete the upload.
+        if ($batch->status === 'queued') {
+            Storage::disk('local')->deleteDirectory("ingest/{$batch->id}");
+        }
+
         $book = $batch->book;
 
         if ($book && $book->status === 'draft') {
@@ -269,29 +290,20 @@ class DocumentIngestService
 
         $absolute = Storage::disk('local')->path($storedPath);
 
-        // Preferred path: real page images, read one at a time.
+        // Preferred path: real page images, each read for its words.
         if ($this->rasterizer->isAvailable()) {
             $workDir = dirname($absolute).'/pages';
             $images = $this->rasterizer->rasterize($absolute, $workDir);
 
-            $batch->update(['status' => 'reading', 'pages_total' => count($images)]);
+            try {
+                return $this->readImages($batch, $images);
+            } finally {
+                foreach ($images as $image) {
+                    @unlink($image);
+                }
 
-            $pages = [];
-            foreach ($images as $image) {
-                $bytes = file_get_contents($image);
-                $pages[] = [
-                    'image_path' => Storage::disk('public')->putFile(
-                        "book-pages/{$batch->book_id}",
-                        new \Illuminate\Http\File($image),
-                    ),
-                    'text' => $this->read($bytes),
-                ];
-                @unlink($image);
+                @rmdir($workDir);
             }
-
-            @rmdir($workDir);
-
-            return $pages;
         }
 
         // Fallback: no renderer on this host, so send the PDF itself to be read
@@ -312,46 +324,93 @@ class DocumentIngestService
      */
     private function pagesFromImages(IngestBatch $batch, array $storedPaths): array
     {
-        $batch->update(['status' => 'reading', 'pages_total' => count($storedPaths)]);
-
-        $pages = [];
-
-        foreach ($storedPaths as $path) {
-            $absolute = Storage::disk('local')->path($path);
-            $bytes = (string) file_get_contents($absolute);
-
-            $pages[] = [
-                'image_path' => Storage::disk('public')->putFile(
-                    "book-pages/{$batch->book_id}",
-                    new \Illuminate\Http\File($absolute),
-                ),
-                'text' => $this->read($bytes),
-            ];
-        }
-
-        return $pages;
+        return $this->readImages(
+            $batch,
+            array_map(fn (string $path) => Storage::disk('local')->path($path), $storedPaths),
+        );
     }
 
     /**
-     * OCR one page. A page that will not read is not a failed upload — picture
-     * pages have no words at all — so the failure is swallowed and the teacher
-     * fixes it in the preview.
+     * Keep each page picture and read the words off it, several pages at a
+     * time. Reading them one by one left a forty-page book waiting on forty
+     * calls in a row; the progress moves as each group finishes.
+     *
+     * @param  list<string>  $files  absolute paths of the page images, in order
+     * @return list<array{image_path: ?string, text: ?string}>
+     *
+     * @throws IngestCancelled when the teacher cancels part way through
      */
-    private function read(string $bytes): ?string
+    private function readImages(IngestBatch $batch, array $files): array
+    {
+        $batch->update(['status' => 'reading', 'pages_total' => count($files), 'pages_done' => 0]);
+
+        $size = $this->ocr->concurrency();
+        $pages = [];
+
+        try {
+            foreach (array_chunk($files, $size, true) as $chunk) {
+                if ($this->wasCancelled($batch)) {
+                    throw new IngestCancelled;
+                }
+
+                $texts = $this->readMany(array_map(fn (string $file) => (string) file_get_contents($file), $chunk));
+
+                foreach ($chunk as $index => $file) {
+                    $pages[$index] = [
+                        'image_path' => Storage::disk('public')->putFile(
+                            "book-pages/{$batch->book_id}",
+                            new \Illuminate\Http\File($file),
+                        ),
+                        'text' => $texts[$index] ?? null,
+                    ];
+                }
+
+                $batch->update(['pages_done' => count($pages)]);
+            }
+        } catch (IngestCancelled $cancelled) {
+            $this->deleteImages(array_column($pages, 'image_path'));
+
+            throw $cancelled;
+        }
+
+        return array_values($pages);
+    }
+
+    /**
+     * OCR a group of pages. A page that will not read is not a failed upload —
+     * picture pages have no words at all — so the failure is swallowed and the
+     * teacher fixes it in the preview.
+     *
+     * @param  array<int, string>  $images
+     * @return array<int, ?string>
+     */
+    private function readMany(array $images): array
     {
         if (! $this->ocr->isConfigured()) {
-            return null;
+            return array_fill_keys(array_keys($images), null);
         }
 
         try {
-            $text = $this->ocr->extractText($bytes);
+            return $this->ocr->extractTextMany($images);
         } catch (Throwable $exception) {
             report($exception);
 
-            return null;
+            return array_fill_keys(array_keys($images), null);
         }
+    }
 
-        return blank($text) ? null : $text;
+    /** Cancelling an upload deletes its row; the job notices it is gone. */
+    private function wasCancelled(IngestBatch $batch): bool
+    {
+        return ! IngestBatch::whereKey($batch->id)->exists();
+    }
+
+    /** @param  list<?string>  $paths */
+    private function deleteImages(array $paths): void
+    {
+        foreach (array_filter($paths) as $path) {
+            Storage::disk('public')->delete($path);
+        }
     }
 
     /** @param  array<int, array<string, mixed>>|null  $chapters */

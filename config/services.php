@@ -47,6 +47,9 @@ return [
         'key' => env('AZURE_VISION_KEY'),
         // e.g. https://<resource-name>.cognitiveservices.azure.com
         'endpoint' => env('AZURE_VISION_ENDPOINT'),
+        // Pages read at the same time during an upload. The free (F0) tier
+        // allows 20 calls a minute, so keep it low there; S1 takes 10 a second.
+        'concurrency' => (int) env('AZURE_VISION_CONCURRENCY', 6),
     ],
 
     // Reads uploaded PDFs as text. When a key is set it is used instead of
@@ -57,6 +60,11 @@ return [
         // The model that sorts story pages from credits, footers and exercises.
         // Defaults to the model above; a stronger one sorts more reliably.
         'agent_model' => env('OPENAI_AGENT_MODEL'),
+        // The model that reads the words off each page picture. Defaults to the
+        // model above.
+        'ocr_model' => env('OPENAI_OCR_MODEL'),
+        // Pages read at the same time during an upload.
+        'concurrency' => (int) env('OPENAI_CONCURRENCY', 8),
         'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
         'timeout' => (int) env('OPENAI_TIMEOUT', 600),
     ],

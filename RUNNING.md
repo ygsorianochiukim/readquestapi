@@ -21,6 +21,18 @@ authoritative read-aloud score, and the short-lived tokens the browser uses for
 **live**, word-by-word assessment. The key never leaves the server —
 `POST /api/v1/speech/token` mints a ten-minute token instead.
 
+## Reading pages: OpenAI first, Azure Vision as a fallback
+
+The words on uploaded pages are read by OpenAI when `OPENAI_API_KEY` is set,
+several pages at a time. Azure Vision is only used on a server with no OpenAI
+key, so `AZURE_VISION_KEY` can be left out. Azure Speech is still needed for
+narration and read-aloud scoring.
+
+```
+OPENAI_OCR_MODEL=…        # optional; defaults to OPENAI_MODEL
+OPENAI_CONCURRENCY=8      # pages read at once; lower it if OpenAI answers 429
+```
+
 ## The queue worker is not optional
 
 Uploading reading material (`POST /api/v1/ingest`) queues `ProcessIngestBatch`,
