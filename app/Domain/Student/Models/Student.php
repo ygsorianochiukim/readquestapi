@@ -20,6 +20,11 @@ class Student extends Authenticatable
 
     protected $table = 'students';
 
+    /** Seen within this many minutes counts as using the app right now. */
+    public const ONLINE_MINUTES = 2;
+
+    protected $appends = ['is_online', 'is_present_today'];
+
     protected $fillable = [
         'teacher_id',
         'first_name',
@@ -41,6 +46,8 @@ class Student extends Authenticatable
         return [
             'password' => 'hashed',
             'points' => 'integer',
+            'notifications_read_at' => 'datetime',
+            'last_seen_at' => 'datetime',
         ];
     }
 
@@ -52,7 +59,7 @@ class Student extends Authenticatable
     public function badges(): BelongsToMany
     {
         return $this->belongsToMany(Badge::class, 'student_badges')
-            ->withPivot('earned_at')
+            ->withPivot('earned_at', 'awarded_by')
             ->withTimestamps();
     }
 
@@ -82,5 +89,32 @@ class Student extends Authenticatable
     public function getFullNameAttribute(): string
     {
         return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    /** Using the app right now. */
+    public function getIsOnlineAttribute(): bool
+    {
+        return $this->last_seen_at !== null
+            && $this->last_seen_at->gt(now()->subMinutes(self::ONLINE_MINUTES));
+    }
+
+    /** Has opened the app today — present, for a teacher taking the register. */
+    public function getIsPresentTodayAttribute(): bool
+    {
+        return $this->last_seen_at !== null && $this->last_seen_at->isToday();
+    }
+
+    /**
+     * Note that the student is here. Written at most once a minute, and without
+     * touching updated_at, so a child reading does not look like an edit.
+     */
+    public function markSeen(): void
+    {
+        if ($this->last_seen_at?->gt(now()->subMinute())) {
+            return;
+        }
+
+        $this->last_seen_at = now();
+        static::whereKey($this->id)->toBase()->update(['last_seen_at' => $this->last_seen_at]);
     }
 }

@@ -42,6 +42,38 @@ class IngestBatch extends Model
 
     protected $appends = ['percent', 'is_finished'];
 
+    /** Stages during which a run is (or should be) reading the file. */
+    public const WORKING = ['starting', 'rasterizing', 'analyzing', 'reading'];
+
+    /**
+     * Claim the batch for one run. Only a queued batch can be claimed, and
+     * only once, so the queue worker and the in-request fallback can never
+     * both read the same file and fill the book twice.
+     */
+    public function claim(): bool
+    {
+        return static::whereKey($this->id)
+            ->where('status', 'queued')
+            ->update(['status' => 'starting', 'updated_at' => now()]) === 1;
+    }
+
+    /** Queued, but nothing has picked it up — no queue worker is running. */
+    public function isWaitingTooLong(int $seconds): bool
+    {
+        return $this->status === 'queued' && $this->updated_at?->lt(now()->subSeconds($seconds));
+    }
+
+    /**
+     * Stuck part-way: the run that was reading it has died (a restart, or a
+     * PHP time limit) and nothing will ever move it on. Every stage writes its
+     * progress, and no single call to Azure or OpenAI outlasts this.
+     */
+    public function hasStalled(int $minutes): bool
+    {
+        return in_array($this->status, self::WORKING, true)
+            && $this->updated_at?->lt(now()->subMinutes($minutes));
+    }
+
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(Teachers::class, 'teacher_id');
@@ -79,6 +111,7 @@ class IngestBatch extends Model
     {
         return match ($this->status) {
             'queued' => 'Waiting to start…',
+            'starting' => 'Starting…',
             'rasterizing' => 'Splitting the file into pages…',
             'analyzing' => 'Finding the chapters and leaving out covers, footers and exercises…',
             'reading' => $this->pages_total > 0

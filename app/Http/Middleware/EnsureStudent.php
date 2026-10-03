@@ -17,6 +17,9 @@ class EnsureStudent
             ], 403);
         }
 
+        // Every request from the student app keeps them "active now" for their teacher.
+        $request->user()->markSeen();
+
         return $next($request);
     }
 }

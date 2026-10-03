@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\RewardController;
 use App\Http\Controllers\Api\V1\SpeechTokenController;
 use App\Http\Controllers\Api\V1\StudentController;
 use App\Http\Controllers\Api\V1\StudentLearningController;
+use App\Http\Controllers\Api\V1\StudentNotificationController;
 use App\Http\Controllers\Api\V1\SystemLogController;
 use App\Http\Controllers\Api\V1\TeacherDashboardController;
 use App\Http\Controllers\Api\V1\UploadController;
@@ -39,6 +40,8 @@ Route::prefix('v1')->group(function () {
         Route::post('student/logout', [StudentAuthController::class, 'logout']);
         Route::get('student/badges', [StudentAuthController::class, 'badges']);
         Route::get('student/achievements', [StudentAuthController::class, 'achievements']);
+        Route::get('student/notifications', [StudentNotificationController::class, 'index']);
+        Route::post('student/notifications/read', [StudentNotificationController::class, 'markRead']);
 
         // Read-aloud pronunciation assessment (student submits a recording)
         Route::post('pronunciation', [PronunciationController::class, 'store']);
@@ -118,6 +121,7 @@ Route::prefix('v1')->group(function () {
         Route::match(['put', 'patch'], 'ingest/{batch}/pages/{page}', [IngestController::class, 'updatePage']);
         // Re-read one page (optionally from a replacement photo) instead of typing its words.
         Route::post('ingest/{batch}/pages/{page}/rescan', [IngestController::class, 'rescanPage']);
+        Route::post('ingest/{batch}/retry', [IngestController::class, 'retry']);
         Route::post('ingest/{batch}/commit', [IngestController::class, 'commit']);
         Route::delete('ingest/{batch}', [IngestController::class, 'destroy']);
 
@@ -151,6 +155,9 @@ Route::prefix('v1')->group(function () {
         // Scanned book pages — upload (with OCR), edit text, delete
         Route::get('books/{book}/pages', [BookPageController::class, 'index']);
         Route::post('books/{book}/pages', [BookPageController::class, 'store']);
+        // A page typed in by the teacher, or a chapter's pages cut from its story text.
+        Route::post('books/{book}/pages/text', [BookPageController::class, 'storeText']);
+        Route::post('chapters/{chapter}/pages/generate', [BookPageController::class, 'generate']);
         Route::match(['put', 'patch'], 'pages/{page}', [BookPageController::class, 'update']);
         Route::post('pages/{page}/rescan', [BookPageController::class, 'rescan']);
         Route::delete('pages/{page}', [BookPageController::class, 'destroy']);

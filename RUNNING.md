@@ -44,8 +44,16 @@ php artisan queue:work
 ```
 
 `QUEUE_CONNECTION=database` is already set, and the `jobs` table already exists.
-**Without a worker running, uploads sit at "Waiting to start…" forever** and the
-teacher gets no error, because nothing has failed — nothing has run.
+**Without a worker running**, an upload that nobody picks up within 15 seconds is
+read by the API itself, after it has answered the upload screen's next poll
+(`DocumentIngestService::keepMoving`). That keeps a server with no worker
+working, but a worker is still the right setup: an in-request read ties up a PHP
+process for as long as the file takes. A run that dies part-way (a restart, a
+time limit) is marked failed after 15 minutes without progress, and the teacher
+gets a "Try again" button that re-reads the file already on the server.
+
+`DB_QUEUE_RETRY_AFTER` (default 1900s) must stay above the ingest job's 1800s
+timeout, or a long PDF is handed to a second run while the first is still going.
 
 In production, run it under a supervisor (`supervisord`, a systemd unit, or
 `php artisan queue:listen` behind a process manager).

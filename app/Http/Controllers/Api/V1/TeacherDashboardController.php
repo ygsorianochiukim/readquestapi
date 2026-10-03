@@ -40,6 +40,9 @@ class TeacherDashboardController extends Controller
                 'reading_level' => $student->reading_level,
                 'status' => $student->status,
                 'points' => $student->points,
+                'is_online' => $student->is_online,
+                'is_present_today' => $student->is_present_today,
+                'last_seen_at' => $student->last_seen_at?->toIso8601String(),
                 'assigned_books' => $assignedBooks,
                 'completed_books' => $completedBooks,
                 'percent' => $totalChapters > 0 ? (int) round($completedChapters / $totalChapters * 100) : 0,
@@ -52,6 +55,8 @@ class TeacherDashboardController extends Controller
             'data' => [
                 'stats' => [
                     'students' => $students->count(),
+                    'present_today' => $students->where('is_present_today', true)->count(),
+                    'online_now' => $students->where('is_online', true)->count(),
                     'active_books' => Book::where('status', 'active')->count(),
                     'pending_validations' => $pendingValidations,
                     'average_completion' => $summaries->count() > 0

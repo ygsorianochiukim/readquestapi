@@ -92,6 +92,11 @@ class PronunciationRepository
             $query->whereRaw('COALESCE(teacher_score, pron_score) < ?', [60]);
         }
 
+        // Readings that did not match the text — the pupil read something else.
+        if (($filters['off_script'] ?? false)) {
+            $query->where('is_off_script', true);
+        }
+
         if (! empty($filters['from'])) {
             $query->whereDate('created_at', '>=', $filters['from']);
         }

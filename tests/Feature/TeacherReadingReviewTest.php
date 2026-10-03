@@ -193,3 +193,21 @@ it("keeps one teacher's queue out of another's", function () {
 
     expect($queue->json('data'))->toHaveCount(1);
 });
+
+it('filters the queue to readings that did not match the text, a page at a time', function () {
+    $teacher = makeTeacher();
+    $student = makeStudent($teacher);
+
+    attemptFor($student, 80.0);
+    attemptFor($student, 10.0)->update(['is_off_script' => true]);
+    attemptFor($student, 5.0)->update(['is_off_script' => true]);
+
+    $offScript = $this->withHeaders(teacherHeaders($teacher))
+        ->getJson('/api/v1/pronunciation/queue?off_script=1&per_page=1')
+        ->assertOk();
+
+    expect($offScript->json('data'))->toHaveCount(1)
+        ->and($offScript->json('data.0.is_off_script'))->toBeTrue()
+        ->and($offScript->json('meta.total'))->toBe(2)
+        ->and($offScript->json('meta.last_page'))->toBe(2);
+});

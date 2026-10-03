@@ -13,7 +13,7 @@ use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
- * A reader chapter made of two pages, three paragraphs in all:
+ * A reader chapter made of two pages, read one whole page at a time:
  * "The fox ran fast." and "The dog sat down." on the first, under its
  * heading, and "The cat slept all day." on the second.
  *
@@ -100,16 +100,18 @@ function chapterReadAloudPassed(TestCase $test, Student $student, Chapter $chapt
     )->firstWhere('id', $chapter->id)['progress']['pronunciation_passed'];
 }
 
-it('scores one paragraph against that paragraph alone', function () {
+it('scores one page against that page alone', function () {
     $student = makeStudent(makeTeacher());
     [$chapter, $first] = pagedChapter($student);
     fakeParagraphScoring();
 
-    $response = readParagraph($this, $student, $chapter, $first, 1)->assertCreated();
+    $response = readParagraph($this, $student, $chapter, $first, 0)->assertCreated();
 
-    expect($response->json('data.reference_text'))->toBe('The dog sat down.')
-        ->and($response->json('data.paragraph_index'))->toBe(1)
-        ->and($response->json('meta.read_aloud.pages_total'))->toBe(3)
+    // The whole page, as the teacher sees it, less its heading line.
+    expect($response->json('data.reference_text'))->toBe("The fox ran fast.
+The dog sat down.")
+        ->and($response->json('data.paragraph_index'))->toBe(0)
+        ->and($response->json('meta.read_aloud.pages_total'))->toBe(2)
         ->and($response->json('meta.read_aloud.pages_read'))->toBe(1)
         ->and($response->json('meta.read_aloud.passed'))->toBeFalse()
         // One page read well is not the whole chapter read.
@@ -122,17 +124,16 @@ it('passes the chapter once every page has been read aloud', function () {
     fakeParagraphScoring();
 
     readParagraph($this, $student, $chapter, $first, 0)->assertCreated();
-    readParagraph($this, $student, $chapter, $first, 1)->assertCreated();
     $last = readParagraph($this, $student, $chapter, $second, 0)->assertCreated();
 
-    expect($last->json('meta.read_aloud.pages_read'))->toBe(3)
+    expect($last->json('meta.read_aloud.pages_read'))->toBe(2)
         ->and($last->json('meta.read_aloud.passed'))->toBeTrue()
         ->and(chapterReadAloudPassed($this, $student, $chapter))->toBeTrue();
 
     $this->withHeaders(studentHeaders($student))
         ->getJson("/api/v1/student/chapters/{$chapter->id}/read-aloud")
         ->assertOk()
-        ->assertJsonPath('data.pages_read', 3)
+        ->assertJsonPath('data.pages_read', 2)
         ->assertJsonPath('data.passed', true);
 });
 
@@ -142,10 +143,9 @@ it('does not pass the chapter when the pages average below the pass mark', funct
     fakeParagraphScoring(40.0);
 
     readParagraph($this, $student, $chapter, $first, 0)->assertCreated();
-    readParagraph($this, $student, $chapter, $first, 1)->assertCreated();
     $last = readParagraph($this, $student, $chapter, $second, 0)->assertCreated();
 
-    expect($last->json('meta.read_aloud.pages_read'))->toBe(3)
+    expect($last->json('meta.read_aloud.pages_read'))->toBe(2)
         ->and($last->json('meta.read_aloud.passed'))->toBeFalse()
         ->and(chapterReadAloudPassed($this, $student, $chapter))->toBeFalse();
 });
@@ -159,12 +159,13 @@ it('refuses a page that belongs to another chapter', function () {
     readParagraph($this, $student, $chapter, $otherPage, 0)->assertStatus(422);
 });
 
-it('refuses a paragraph the page does not have', function () {
+it('refuses a part of a page that does not exist', function () {
     $student = makeStudent(makeTeacher());
     [$chapter, , $second] = pagedChapter($student);
     fakeParagraphScoring();
 
-    readParagraph($this, $student, $chapter, $second, 5)->assertStatus(422);
+    // A page is read whole: it has no second part.
+    readParagraph($this, $student, $chapter, $second, 1)->assertStatus(422);
 });
 
 /** Azure Speech saying back which words it was asked to speak. */
@@ -176,18 +177,19 @@ function fakeNarration(): void
     Http::fake(fn (Request $request) => Http::response('MP3:'.strip_tags($request->body()), 200));
 }
 
-it('narrates one paragraph of a page on its own', function () {
+it('narrates one page on its own', function () {
     Storage::fake('local');
     $student = makeStudent(makeTeacher());
     [, $first] = pagedChapter($student);
     fakeNarration();
 
     $response = $this->withHeaders(studentHeaders($student))
-        ->get("/api/v1/pages/{$first->id}/narration?paragraph=1")
+        ->get("/api/v1/pages/{$first->id}/narration?paragraph=0")
         ->assertOk()
         ->assertHeader('Content-Type', 'audio/mpeg');
 
-    expect($response->getContent())->toBe('MP3:The dog sat down.');
+    expect($response->getContent())->toBe("MP3:The fox ran fast.
+The dog sat down.");
 });
 
 it('makes every page of a chapter speak ahead of time', function () {
@@ -198,7 +200,7 @@ it('makes every page of a chapter speak ahead of time', function () {
 
     \App\Domain\Speech\Jobs\PrepareChapterNarration::dispatchSync($chapter->id);
 
-    // Three paragraphs, three clips — and asking for one now needs no Azure call.
-    expect(Storage::files('narration'))->toHaveCount(3);
-    Http::assertSentCount(3);
+    // Two pages, two clips — and asking for one now needs no Azure call.
+    expect(Storage::files('narration'))->toHaveCount(2);
+    Http::assertSentCount(2);
 });

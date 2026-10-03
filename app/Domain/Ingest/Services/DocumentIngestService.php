@@ -30,6 +30,12 @@ use Throwable;
  */
 class DocumentIngestService
 {
+    /** How long a queued upload waits for a queue worker before it is read in-request. */
+    private const START_GRACE_SECONDS = 15;
+
+    /** How long a run may go without progress before it is taken for dead. */
+    private const STALL_MINUTES = 15;
+
     public function __construct(
         private PdfRasterizer $rasterizer,
         private PageReader $ocr,
@@ -126,6 +132,7 @@ class DocumentIngestService
             // written to the book yet, so only the stored pictures are left.
             if ($this->wasCancelled($batch)) {
                 $this->deleteImages(array_column($pages, 'image_path'));
+                $this->deleteUpload($paths);
 
                 return;
             }
@@ -147,17 +154,74 @@ class DocumentIngestService
                 'pages_done' => count($pages),
                 'completed_at' => now(),
             ]);
+
+            // The original upload is no longer needed once its pages exist.
+            $this->deleteUpload($paths);
         } catch (IngestCancelled) {
-            return;
+            $this->deleteUpload($paths);
         } catch (Throwable $exception) {
+            // The file is kept, so "Try again" can read it without a new upload.
             report($exception);
             $this->fail($batch, $exception->getMessage());
-        } finally {
-            // The original upload is no longer needed once its pages exist.
-            foreach ($paths as $path) {
-                Storage::disk('local')->delete($path);
-            }
         }
+    }
+
+    /**
+     * Keep an upload moving when nothing else will.
+     *
+     * Called each time the upload screen asks how a batch is doing. With no
+     * queue worker running, a batch would say "Waiting to start…" forever, so
+     * after a short wait it is read right here, once the answer has been sent.
+     * A run that died part-way is turned into a failure the teacher can see
+     * and retry, rather than a progress bar that never moves.
+     */
+    public function keepMoving(IngestBatch $batch): IngestBatch
+    {
+        if ($batch->isWaitingTooLong(self::START_GRACE_SECONDS)) {
+            ProcessIngestBatch::dispatchAfterResponse($batch->id);
+        } elseif ($batch->hasStalled(self::STALL_MINUTES)) {
+            $this->fail($batch, 'Reading this file stopped part-way — the server may have restarted or run out of time. Press "Try again".');
+        }
+
+        return $batch;
+    }
+
+    /**
+     * Read a failed upload again from the file the teacher sent. The file is
+     * kept until the book has its pages, so a failure never means uploading
+     * it a second time.
+     *
+     * @throws RuntimeException when the upload cannot be retried
+     */
+    public function retry(IngestBatch $batch): IngestBatch
+    {
+        if ($batch->status !== 'failed') {
+            throw new RuntimeException('Only an upload that failed can be tried again.');
+        }
+
+        $paths = json_decode((string) $batch->source_path, true) ?: [];
+
+        if ($paths === [] || collect($paths)->contains(fn ($path) => ! Storage::disk('local')->exists($path))) {
+            throw new RuntimeException('The uploaded file is no longer on the server. Please upload it again.');
+        }
+
+        // Pages a dead run got as far as saving are thrown away and read again.
+        $book = $batch->book;
+        if ($book && $book->status === 'draft') {
+            $this->deleteImages($book->pages()->pluck('image_path')->all());
+            $book->pages()->delete();
+        }
+
+        $batch->update([
+            'status' => 'queued',
+            'pages_done' => 0,
+            'error' => null,
+            'completed_at' => null,
+        ]);
+
+        ProcessIngestBatch::dispatch($batch->id);
+
+        return $batch->refresh();
     }
 
     /**
@@ -256,8 +320,9 @@ class DocumentIngestService
      */
     public function discard(IngestBatch $batch): void
     {
-        // Not started yet, so no job will be around to delete the upload.
-        if ($batch->status === 'queued') {
+        // Not started, or failed and kept for a retry: no job will be around
+        // to delete the upload.
+        if (in_array($batch->status, ['queued', 'failed'], true)) {
             Storage::disk('local')->deleteDirectory("ingest/{$batch->id}");
         }
 
@@ -396,6 +461,14 @@ class DocumentIngestService
             report($exception);
 
             return array_fill_keys(array_keys($images), null);
+        }
+    }
+
+    /** @param  list<string>  $paths  the stored upload */
+    private function deleteUpload(array $paths): void
+    {
+        foreach ($paths as $path) {
+            Storage::disk('local')->delete($path);
         }
     }
 

@@ -6,18 +6,20 @@ use App\Domain\Book\Models\BookPage;
 use App\Domain\Chapter\Models\Chapter;
 
 /**
- * A chapter's pages, cut into the paragraphs a child reads one at a time.
+ * A chapter's pages, as the child reads them one at a time.
  *
- * The student app shows each paragraph as its own page of the flip book and
- * reads them aloud one by one, so this must cut them exactly the same way:
- * one paragraph per line, blank lines ignored, and a "Chapter 2" heading line
- * left out — it titles the page, it is not read.
+ * Each page of the book is one page of reading — exactly the page the teacher
+ * sees and edits, not a line of it. A "Chapter 2" heading line at the top is
+ * left out: it titles the page, it is not read.
+ *
+ * The student app cuts pages the same way, and narration, read-aloud scoring
+ * and progress all count on it, so a page is always "paragraph" 0 of itself.
  */
 class ChapterParagraphs
 {
     private const HEADING = '/^chapter\s+[\w-]+\b.{0,60}$/iu';
 
-    /** @return list<string> */
+    /** @return list<string> the page's words, or nothing when it has none */
     public function of(BookPage $page): array
     {
         $lines = array_values(array_filter(
@@ -29,11 +31,11 @@ class ChapterParagraphs
             array_shift($lines);
         }
 
-        return $lines;
+        return $lines === [] ? [] : [implode("\n", $lines)];
     }
 
     /**
-     * Every paragraph of the chapter, in reading order.
+     * Every page of the chapter that has words, in reading order.
      *
      * @return list<array{book_page_id: int, paragraph_index: int, text: string}>
      */

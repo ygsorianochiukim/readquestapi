@@ -42,8 +42,9 @@ class RewardService
             return false;
         }
 
-        DB::transaction(function () use ($student, $badge) {
-            $student->badges()->attach($badge->id, ['earned_at' => now()]);
+        DB::transaction(function () use ($student, $badge, $by) {
+            // Who gave it, so the child's notification can say it was their teacher.
+            $student->badges()->attach($badge->id, ['earned_at' => now(), 'awarded_by' => $by?->id]);
             $student->increment('points', $badge->points);
         });
 

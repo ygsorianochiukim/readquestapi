@@ -42,6 +42,7 @@ class PronunciationReviewController extends Controller
             'student_id' => ['nullable', 'integer', 'exists:students,id'],
             'status' => ['nullable', 'in:pending,reviewed'],
             'only_failed' => ['nullable', 'boolean'],
+            'off_script' => ['nullable', 'boolean'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],

@@ -38,11 +38,18 @@ class ProcessIngestBatch implements ShouldQueue
     {
         $batch = IngestBatch::find($this->batchId);
 
-        if (! $batch || $batch->status === 'committed') {
+        // Gone (cancelled), or already being read by another run — the queue
+        // worker and the in-request fallback race for it, and only one wins.
+        if (! $batch || ! $batch->claim()) {
             return;
         }
 
-        $ingest->process($batch);
+        // Run in-request (no worker) this must outlive PHP's time limit and the
+        // teacher closing the tab; under a worker both are no-ops.
+        @set_time_limit(0);
+        ignore_user_abort(true);
+
+        $ingest->process($batch->refresh());
     }
 
     /** The teacher is watching this row; it must not just go quiet. */

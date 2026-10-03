@@ -96,6 +96,90 @@ class BookPageService
         return $page->refresh();
     }
 
+    /**
+     * Add a page by typing its sentences — for a chapter whose words the
+     * teacher has but no scan of, or a page they want to write themselves.
+     */
+    public function createText(Book $book, Chapter $chapter, string $text): BookPage
+    {
+        return $book->pages()->create([
+            'chapter_id' => $chapter->id,
+            'page_number' => ($book->pages()->max('page_number') ?? 0) + 1,
+            'image_path' => null,
+            'text' => trim($text),
+        ]);
+    }
+
+    /**
+     * Cut a chapter's story text into pages of a few sentences each, so a
+     * chapter that came in as one block of words reads a page at a time.
+     *
+     * @return Collection<int, BookPage>
+     *
+     * @throws RuntimeException when the chapter has no words, or already has pages.
+     */
+    public function generateForChapter(Chapter $chapter, int $sentencesPerPage = 5): Collection
+    {
+        if (blank($chapter->story_text)) {
+            throw new RuntimeException('This chapter has no story text to make pages from. Add a page and type its sentences instead.');
+        }
+
+        if ($chapter->pages()->exists()) {
+            throw new RuntimeException('This chapter already has pages. Delete them first to make new ones from the story text.');
+        }
+
+        $book = $chapter->book;
+        $next = (int) ($book->pages()->max('page_number') ?? 0);
+        $created = new Collection;
+
+        foreach (array_chunk(self::sentences($chapter->story_text), max(1, $sentencesPerPage)) as $chunk) {
+            $created->push($book->pages()->create([
+                'chapter_id' => $chapter->id,
+                'page_number' => ++$next,
+                'image_path' => null,
+                'text' => implode("\n", $chunk),
+            ]));
+        }
+
+        return $created;
+    }
+
+    /**
+     * The story's sentences, in order. A sentence ends at . ! or ? (with any
+     * closing quote after it) or at a line break — but not at "Mrs." and the
+     * like, nor before a lowercase word (“Very good!” says Mrs. Post). A
+     * question or cry in quotes keeps the words that tell who said it:
+     * “What is it?” Mrs. Post asks.
+     *
+     * @return list<string>
+     */
+    public static function sentences(string $text): array
+    {
+        $sentences = [];
+
+        foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
+            $joinNext = false;
+
+            foreach (preg_split('/(?<=[.!?])(?<!\bMrs\.)(?<!\bMr\.)(?<!\bMs\.)(?<!\bDr\.)(?<!\bSt\.)["\'”’)]*\K\s+(?!\p{Ll})/u', trim($line)) ?: [] as $sentence) {
+                $sentence = trim(preg_replace('/\s+/u', ' ', $sentence) ?? $sentence);
+
+                if ($sentence === '') {
+                    continue;
+                }
+
+                if ($joinNext && ! preg_match('/^["“‘\']/u', $sentence)) {
+                    $sentences[array_key_last($sentences)] .= ' '.$sentence;
+                } else {
+                    $sentences[] = $sentence;
+                }
+
+                $joinNext = (bool) preg_match('/[!?]["”’\']$/u', $sentences[array_key_last($sentences)]);
+            }
+        }
+
+        return $sentences;
+    }
+
     public function updateText(BookPage $page, ?string $text): BookPage
     {
         $page->update(['text' => $text]);

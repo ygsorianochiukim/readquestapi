@@ -11,6 +11,8 @@ use App\Http\Requests\RescanBookPageRequest;
 use App\Http\Requests\UpdateBookPageRequest;
 use App\Http\Requests\UploadBookPageRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use RuntimeException;
 use Throwable;
 
 class BookPageController extends Controller
@@ -36,6 +38,35 @@ class BookPageController extends Controller
         $page = $this->service->createFromUpload($book, $request->file('image'), $chapter);
 
         return response()->json(['data' => $page], 201);
+    }
+
+    /** Add a page by typing its sentences into a chapter. */
+    public function storeText(Request $request, Book $book): JsonResponse
+    {
+        $data = $request->validate([
+            'chapter_id' => ['required', 'integer'],
+            'text' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $chapter = Chapter::where('book_id', $book->id)->findOrFail($data['chapter_id']);
+
+        return response()->json(['data' => $this->service->createText($book, $chapter, $data['text'])], 201);
+    }
+
+    /** Make a chapter's pages from its story text, a few sentences to a page. */
+    public function generate(Request $request, Chapter $chapter): JsonResponse
+    {
+        $data = $request->validate([
+            'sentences_per_page' => ['nullable', 'integer', 'min:1', 'max:12'],
+        ]);
+
+        try {
+            $pages = $this->service->generateForChapter($chapter, (int) ($data['sentences_per_page'] ?? 5));
+        } catch (RuntimeException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
+
+        return response()->json(['data' => $pages], 201);
     }
 
     public function update(UpdateBookPageRequest $request, BookPage $page): JsonResponse

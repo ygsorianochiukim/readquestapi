@@ -34,7 +34,9 @@ class IngestController extends Controller
             ->where('teacher_id', $request->user()->id)
             ->latest()
             ->limit(25)
-            ->get();
+            ->get()
+            // An upload nothing is reading gets started, or marked as failed.
+            ->each(fn (IngestBatch $batch) => $this->ingest->keepMoving($batch));
 
         return response()->json([
             'data' => $batches,
@@ -71,6 +73,7 @@ class IngestController extends Controller
     public function show(Request $request, IngestBatch $batch): JsonResponse
     {
         $this->assertOwns($request, $batch);
+        $this->ingest->keepMoving($batch);
 
         return response()->json(['data' => $this->ingest->preview($batch)]);
     }
@@ -151,6 +154,20 @@ class IngestController extends Controller
         }
 
         return response()->json(['data' => $book]);
+    }
+
+    /** Read a failed upload again, from the file already on the server. */
+    public function retry(Request $request, IngestBatch $batch): JsonResponse
+    {
+        $this->assertOwns($request, $batch);
+
+        try {
+            $batch = $this->ingest->retry($batch);
+        } catch (Throwable $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
+
+        return response()->json(['data' => $batch]);
     }
 
     /** Throw the draft away. */
