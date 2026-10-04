@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\QuizQuestionController;
 use App\Http\Controllers\Api\V1\ReaderController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\RewardController;
+use App\Http\Controllers\Api\V1\SpeechSayController;
 use App\Http\Controllers\Api\V1\SpeechTokenController;
 use App\Http\Controllers\Api\V1\StudentController;
 use App\Http\Controllers\Api\V1\StudentLearningController;
@@ -76,6 +77,10 @@ Route::prefix('v1')->group(function () {
 
         Route::get('chapters/{chapter}/narration', ChapterNarrationController::class);
         Route::get('pages/{page}/narration', BookPageNarrationController::class);
+
+        // One word or sentence in the narration voice, for the games and the
+        // "hear this word" helpers. Throttled: each new phrase is an Azure call.
+        Route::get('speech/say', SpeechSayController::class)->middleware('throttle:60,1');
 
         // Reading library
         Route::get('reader/books', [ReaderController::class, 'books']);
