@@ -19,11 +19,19 @@ class UpdateStudentRequest extends FormRequest
         return [
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'required', 'string', 'max:255'],
-            'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('students', 'username')->ignore($studentId)],
+            'username' => ['sometimes', 'required', 'string', 'max:255', 'not_regex:/\d/', Rule::unique('students', 'username')->ignore($studentId)],
             'password' => ['nullable', 'string', 'min:6'],
             'reading_level' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'string', 'in:active,inactive'],
             'profile_image_url' => ['nullable', 'string', 'max:2048'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'username.not_regex' => 'Username must not contain numbers.',
+            'username.unique' => 'This username is already taken.',
         ];
     }
 }
