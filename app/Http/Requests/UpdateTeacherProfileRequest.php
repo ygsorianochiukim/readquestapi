@@ -17,8 +17,8 @@ class UpdateTeacherProfileRequest extends FormRequest
         $teacherId = $this->user()->id;
 
         return [
-            'first_name' => ['sometimes', 'required', 'string', 'max:255'],
-            'last_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'first_name' => ['sometimes', 'required', 'string', 'max:255', 'not_regex:/\d/'],
+            'last_name' => ['sometimes', 'required', 'string', 'max:255', 'not_regex:/\d/'],
             'email' => ['sometimes', 'required', 'email', 'max:255', 'not_regex:/\d/', Rule::unique('teachers', 'email')->ignore($teacherId)],
             'phone_number' => ['nullable', 'string', 'max:255'],
             'profile_image_url' => ['nullable', 'string', 'max:2048'],
@@ -29,6 +29,8 @@ class UpdateTeacherProfileRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'first_name.not_regex' => 'First name must not contain numbers.',
+            'last_name.not_regex' => 'Last name must not contain numbers.',
             'email.not_regex' => 'Email must not contain numbers.',
             'email.unique' => 'This email is already registered.',
         ];

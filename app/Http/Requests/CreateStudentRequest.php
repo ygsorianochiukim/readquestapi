@@ -14,8 +14,8 @@ class CreateStudentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
+            'first_name' => ['required', 'string', 'max:255', 'not_regex:/\d/'],
+            'last_name' => ['required', 'string', 'max:255', 'not_regex:/\d/'],
             'username' => ['required', 'string', 'max:255', 'not_regex:/\d/', 'unique:students,username'],
             'password' => ['required', 'string', 'min:6'],
             'reading_level' => ['nullable', 'string', 'max:255'],
@@ -27,6 +27,8 @@ class CreateStudentRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'first_name.not_regex' => 'First name must not contain numbers.',
+            'last_name.not_regex' => 'Last name must not contain numbers.',
             'username.not_regex' => 'Username must not contain numbers.',
             'username.unique' => 'This username is already taken.',
         ];
