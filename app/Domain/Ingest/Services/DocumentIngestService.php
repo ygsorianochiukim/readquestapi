@@ -66,6 +66,7 @@ class DocumentIngestService
         $book = $bookId
             ? Book::findOrFail($bookId)
             : Book::create([
+                'teacher_id' => $teacher->id,
                 'title' => $title ?: $this->titleFromFilename($first->getClientOriginalName()),
                 'type' => 'scanned',
                 'status' => 'draft',
@@ -373,14 +374,43 @@ class DocumentIngestService
 
         // Fallback: no renderer on this host, so send the PDF itself to be read
         // and keep the words. The pictures are lost, and the preview says so.
-        $batch->update(['text_only' => true, 'status' => 'reading']);
+        $bytes = (string) file_get_contents($absolute);
+
+        // Counted up front so the screen can say "Reading all 18 pages…" and
+        // estimate its progress; the read itself is a single call.
+        $batch->update([
+            'text_only' => true,
+            'status' => 'reading',
+            'pages_total' => $this->countPdfPages($bytes),
+            'pages_done' => 0,
+        ]);
 
         $texts = $this->pdfText->readPages(
-            (string) file_get_contents($absolute),
+            $bytes,
             $batch->source_name ?: 'book.pdf',
         );
 
         return array_map(fn (string $text) => ['image_path' => null, 'text' => $text ?: null], $texts);
+    }
+
+    /**
+     * A best guess at a PDF's page count without a PDF library: the page
+     * objects, or failing that the largest page-tree /Count. 0 when neither is
+     * readable (compressed object streams), and the estimate assumes a size.
+     */
+    private function countPdfPages(string $bytes): int
+    {
+        $pages = preg_match_all('#/Type\s*/Page(?![a-zA-Z])#', $bytes);
+
+        if ($pages > 0) {
+            return min($pages, 2000);
+        }
+
+        if (preg_match_all('#/Count\s+(\d+)#', $bytes, $matches)) {
+            return min((int) max(array_map('intval', $matches[1])), 2000);
+        }
+
+        return 0;
     }
 
     /**

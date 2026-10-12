@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Book\Models\Book;
 use App\Domain\Student\Models\Student;
 use App\Domain\Student\Services\StudentService;
 use App\Domain\SystemLog\Services\SystemLogService;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\BulkAssignBooksRequest;
 use App\Http\Requests\CreateStudentRequest;
 use App\Http\Requests\SyncBooksRequest;
 use App\Http\Requests\UpdateStudentRequest;
@@ -124,6 +126,87 @@ class StudentController extends Controller
         );
 
         return response()->json(['data' => $student->books()->get()]);
+    }
+
+    /**
+     * The books the Assign books picker offers: this teacher's published
+     * uploads, plus the shared ones every teacher can use.
+     */
+    public function assignableBooks(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => Book::query()->assignableBy($request->user()->id)->orderBy('sequence')->get(),
+        ]);
+    }
+
+    /**
+     * Give several books to several pupils at once. Adds to what each pupil
+     * already has — nothing assigned before is taken away, and a book a pupil
+     * already had keeps its original assigned date.
+     */
+    public function assignBooks(BulkAssignBooksRequest $request): JsonResponse
+    {
+        $teacher = $request->user();
+        $data = $request->validated();
+
+        $students = Student::query()->whereIn('id', $data['student_ids'])->get();
+
+        abort_if(
+            $students->contains(fn (Student $student) => $student->teacher_id !== $teacher->id),
+            403,
+            'One or more of these students do not belong to you.',
+        );
+
+        $books = Book::query()
+            ->assignableBy($teacher->id)
+            ->whereIn('id', $data['book_ids'])
+            ->orderBy('sequence')
+            ->get();
+
+        abort_if(
+            $books->count() !== count($data['book_ids']),
+            422,
+            'One or more of these books are not yours to assign, or are not published yet.',
+        );
+
+        $now = now();
+        $newlyAssigned = 0;
+
+        foreach ($students as $student) {
+            $missing = $books->pluck('id')->diff($student->books()->pluck('books.id'));
+
+            $student->books()->attach(
+                $missing->mapWithKeys(fn ($bookId) => [$bookId => ['assigned_at' => $now]])->all()
+            );
+
+            $newlyAssigned += $missing->count();
+        }
+
+        $bookPart = $books->count() === 1
+            ? "\"{$books->first()->title}\""
+            : $books->count().' books ('.$books->pluck('title')->implode(', ').')';
+
+        $this->logs->record(
+            'books.bulk_assigned',
+            sprintf(
+                '%s assigned %s to %s: %s.',
+                $teacher->full_name,
+                $bookPart,
+                $students->count() === 1 ? '1 pupil' : $students->count().' pupils',
+                $students->pluck('full_name')->implode(', '),
+            ),
+            $students->count() === 1 ? $students->first() : null,
+            $teacher,
+        );
+
+        return response()->json([
+            'message' => 'Books assigned.',
+            'data' => [
+                'books' => $books->count(),
+                'students' => $students->count(),
+                'newly_assigned' => $newlyAssigned,
+            ],
+        ]);
     }
 
     private function authorizeOwner(Request $request, Student $student): void

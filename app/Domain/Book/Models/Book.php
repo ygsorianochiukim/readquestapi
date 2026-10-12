@@ -3,6 +3,7 @@
 namespace App\Domain\Book\Models;
 
 use App\Domain\Chapter\Models\Chapter;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -11,6 +12,7 @@ class Book extends Model
     protected $table = 'books';
 
     protected $fillable = [
+        'teacher_id',
         'title',
         'type',
         'theme',
@@ -22,8 +24,20 @@ class Book extends Model
     ];
 
     protected $casts = [
+        'teacher_id' => 'integer',
         'sequence' => 'integer',
     ];
+
+    /**
+     * Published books a teacher can hand out: their own uploads, plus the
+     * shared ones from before uploads were tracked to a teacher.
+     */
+    public function scopeAssignableBy(Builder $query, int $teacherId): Builder
+    {
+        return $query
+            ->where('status', 'active')
+            ->where(fn (Builder $owned) => $owned->where('teacher_id', $teacherId)->orWhereNull('teacher_id'));
+    }
 
     public function chapters(): HasMany
     {

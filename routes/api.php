@@ -111,6 +111,9 @@ Route::prefix('v1')->group(function () {
         // Book assignment (reading level + book assignment module)
         Route::get('students/{student}/books', [StudentController::class, 'books']);
         Route::put('students/{student}/books', [StudentController::class, 'syncBooks']);
+        // Several books to several pupils at once (Students page → Assign books).
+        Route::get('students/books/assignable', [StudentController::class, 'assignableBooks']);
+        Route::post('students/books/assign', [StudentController::class, 'assignBooks']);
 
         // Image uploads (book covers, chapter illustrations, etc.)
         Route::post('uploads/image', [UploadController::class, 'image']);
